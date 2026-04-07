@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from sqlalchemy import distinct, func
+from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanningLine, PlanningTimeValue
+from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus
 
 
 @dataclass(frozen=True)
@@ -164,3 +164,79 @@ class MonthlyIndicatorService:
             for report_code, total_hours in rows
             if report_code is not None
         }
+    from sqlalchemy import or_
+
+    def calculate_in19_fte_in_execution(
+        self,
+        year: int,
+        month: int,
+    ) -> float:
+        """
+        IN19-CALS-IA
+
+        FTEs in execution for the selected month:
+        real hours excluding report code IDATGENGES01,
+        divided by the contractual monthly FTE hours.
+        """
+        monthly_fte_hours = (1792 / 12) * 7
+
+        total_hours = (
+            self.session.query(func.sum(PlanningTimeValue.hours))
+            .select_from(PlanningLine)
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .filter(PlanningLine.source_type == "real")
+            .filter(
+                or_(
+                    PlanningLine.report_code.is_(None),
+                    PlanningLine.report_code != "IDATGENGES01",
+                )
+            )
+            .filter(PlanningTimeValue.year == year)
+            .filter(PlanningTimeValue.month == month)
+            .scalar()
+        )
+
+        net_hours = float(total_hours or 0.0)
+        return net_hours / monthly_fte_hours
+
+    def calculate_in21_open_requests(self) -> int:
+        """
+        IN21-EFIC-IA
+
+        Count requests whose status is exactly 'En Curso'.
+        No month filter is applied.
+        """
+        result = (
+            self.session.query(func.count(Request.id))
+            .join(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(RequestStatus.name == "En Curso")
+            .scalar()
+        )
+
+        return int(result or 0)
+
+
+    def calculate_in25_cancelled_requests(self) -> int:
+        """
+        IN25-EFIC-IP
+
+        Count requests whose status is exactly 'Cancelada'.
+        No month filter is applied.
+        """
+        result = (
+            self.session.query(func.count(Request.id))
+            .join(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(RequestStatus.name == "Cancelada")
+            .scalar()
+        )
+
+        return int(result or 0)

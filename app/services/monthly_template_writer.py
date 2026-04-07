@@ -42,12 +42,17 @@ class MonthlyTemplateWriteResult:
 
 
 class MonthlyTemplateWriter:
+    def get_in03_report_codes(self, workbook_path: str | Path) -> list[str]:
+        workbook = load_workbook(workbook_path, data_only=True)
+        sheet = self._get_monthly_sheet(workbook)
+        row_map = self._build_in03_report_code_row_map(sheet)
+        return list(row_map.keys())
+
     def write_monthly_report(
         self,
         workbook_path: str | Path,
         report_month: date,
-        in17_value: int,
-        in18_value: int,
+        indicator_values: dict[str, Any],
         in03_values: list[ReportCodeComplianceValue],
     ) -> MonthlyTemplateWriteResult:
         workbook_path = Path(workbook_path)
@@ -67,25 +72,16 @@ class MonthlyTemplateWriter:
         written_report_codes: list[str] = []
         missing_report_codes: list[str] = []
 
-        self._write_single_indicator(
-            sheet=sheet,
-            indicator_row_map=indicator_row_map,
-            indicator_id="IN17-CALS-IR",
-            value=in17_value,
-            month_column=month_column,
-            written_indicator_ids=written_indicator_ids,
-            missing_indicator_ids=missing_indicator_ids,
-        )
-
-        self._write_single_indicator(
-            sheet=sheet,
-            indicator_row_map=indicator_row_map,
-            indicator_id="IN18-CALS-IR",
-            value=in18_value,
-            month_column=month_column,
-            written_indicator_ids=written_indicator_ids,
-            missing_indicator_ids=missing_indicator_ids,
-        )
+        for indicator_id, value in indicator_values.items():
+            self._write_single_indicator(
+                sheet=sheet,
+                indicator_row_map=indicator_row_map,
+                indicator_id=indicator_id,
+                value=value,
+                month_column=month_column,
+                written_indicator_ids=written_indicator_ids,
+                missing_indicator_ids=missing_indicator_ids,
+            )
 
         in03_by_report_code = {
             item.report_code.strip(): item
@@ -188,7 +184,7 @@ class MonthlyTemplateWriter:
             return value
 
         # El servicio devuelve porcentaje 0..100, pero Excel tiene formato 0%
-        # así que hay que escribir 0..1.
+        # por lo que en la celda hay que escribir 0..1.
         return value / 100.0
 
     def _get_or_create_month_column(self, sheet: Worksheet, report_month: date) -> int:
@@ -394,12 +390,6 @@ class MonthlyTemplateWriter:
             return date(value.year, value.month, 1)
 
         return None
-    
-    def get_in03_report_codes(self, workbook_path: str | Path) -> list[str]:
-        workbook = load_workbook(workbook_path, data_only=True)
-        sheet = self._get_monthly_sheet(workbook)
-        row_map = self._build_in03_report_code_row_map(sheet)
-        return list(row_map.keys())
 
     def _add_one_month(self, value: date) -> date:
         if value.month == 12:

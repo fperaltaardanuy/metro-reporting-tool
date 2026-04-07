@@ -317,49 +317,79 @@ class MainWindow:
             self._set_busy_state(True)
             self.status_var.set("Generando reporte mensual...")
 
-            session = SessionLocal()
-            indicator_service = MonthlyIndicatorService(session)
-
             self._append_log(
-                f"Calculando indicadores mensuales para {report_month.strftime('%m-%Y')}..."
+                f"Generando reporte mensual para {report_month.strftime('%m-%Y')}..."
             )
 
+            session = SessionLocal()
+            indicator_service = MonthlyIndicatorService(session)
+            writer = MonthlyTemplateWriter()
+
+            self._append_log("Leyendo report codes del bloque IN03 desde la plantilla...")
+            report_codes = writer.get_in03_report_codes(output_path)
+            self._append_log(
+                "Report codes IN03 detectados: " + ", ".join(report_codes)
+            )
+
+            self._append_log("Calculando IN03-EFEC-IL...")
+            in03_values = indicator_service.calculate_in03_planning_compliance_by_report_code(
+                year=report_month.year,
+                month=report_month.month,
+                report_codes=report_codes,
+            )
+
+            self._append_log("Calculando IN17-CALS-IR...")
             in17_value = indicator_service.calculate_in17_people_in_execution(
                 year=report_month.year,
                 month=report_month.month,
             )
             self._append_log(f"IN17-CALS-IR = {in17_value}")
 
+            self._append_log("Calculando IN18-CALS-IR...")
             in18_value = indicator_service.calculate_in18_profiles_in_execution(
                 year=report_month.year,
                 month=report_month.month,
             )
             self._append_log(f"IN18-CALS-IR = {in18_value}")
 
-            writer = MonthlyTemplateWriter()
-            report_codes = writer.get_in03_report_codes(output_path)
-
-            in03_values = indicator_service.calculate_in03_planning_compliance_by_report_code(
+            self._append_log("Calculando IN19-CALS-IA...")
+            in19_value = indicator_service.calculate_in19_fte_in_execution(
                 year=report_month.year,
                 month=report_month.month,
-                report_codes=list(report_codes),
             )
+            self._append_log(f"IN19-CALS-IA = {in19_value}")
+
+            indicator_values = {
+                "IN17-CALS-IR": in17_value,
+                "IN18-CALS-IR": in18_value,
+                "IN19-CALS-IA": in19_value,
+                "IN21-EFIC-IA": indicator_service.calculate_in21_open_requests(),
+                "IN25-EFIC-IP": indicator_service.calculate_in25_cancelled_requests(),
+            }
 
             self._append_log("Escribiendo resultados en la plantilla Excel...")
-
             result = writer.write_monthly_report(
                 workbook_path=output_path,
                 report_month=report_month,
-                in17_value=in17_value,
-                in18_value=in18_value,
+                indicator_values=indicator_values,
                 in03_values=in03_values,
             )
 
             self.status_var.set("Reporte mensual generado correctamente.")
             self._append_log(
-                f"Reporte mensual generado en columna {result.month_column} "
-                f"({result.month_label}) de la hoja '{result.sheet_name}'."
+                f"Reporte mensual generado correctamente en la hoja '{result.sheet_name}', "
+                f"columna {result.month_column} ({result.month_label})."
             )
+
+            if result.written_indicator_ids:
+                self._append_log(
+                    "Indicadores escritos: " + ", ".join(result.written_indicator_ids)
+                )
+
+            if result.written_report_codes:
+                self._append_log(
+                    "Report codes escritos en IN03: " + ", ".join(result.written_report_codes)
+                )
 
             if result.missing_indicator_ids:
                 self._append_log(
