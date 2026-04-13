@@ -6,7 +6,7 @@ from typing import Sequence
 from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus
+from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode
 
 
 @dataclass(frozen=True)
@@ -240,3 +240,43 @@ class MonthlyIndicatorService:
         )
 
         return int(result or 0)
+
+    def calculate_in28_service_director_dedication(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN28-EFIC-IA
+
+        Dedication percentage of the Service Director for the selected month:
+        real hours for report code IDATGENGES01 divided by its contractual at_unit_hours.
+        """
+        report_code = "IDATGENGES01"
+
+        total_hours = (
+            self.session.query(func.sum(PlanningTimeValue.hours))
+            .select_from(PlanningLine)
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .filter(PlanningLine.source_type == "real")
+            .filter(PlanningLine.report_code == report_code)
+            .filter(PlanningTimeValue.year == year)
+            .filter(PlanningTimeValue.month == month)
+            .scalar()
+        )
+
+        at_unit_hours = (
+            self.session.query(ReportCode.at_unit_hours)
+            .filter(ReportCode.code == report_code)
+            .scalar()
+        )
+
+        real_hours = float(total_hours or 0.0)
+
+        if at_unit_hours is None or float(at_unit_hours) == 0:
+            return "error"
+
+        return (real_hours / float(at_unit_hours)) * 100

@@ -29,6 +29,9 @@ LAST_INDICATOR_ROW = 43
 IN03_FIRST_ROW = 12
 IN03_LAST_ROW = 18
 
+PERCENTAGE_INDICATOR_IDS = {
+    "IN28-EFIC-IA",
+}
 
 @dataclass(frozen=True)
 class MonthlyTemplateWriteResult:
@@ -176,8 +179,22 @@ class MonthlyTemplateWriter:
             missing_indicator_ids.append(indicator_id)
             return
 
-        sheet.cell(row=row, column=month_column).value = value
+        excel_value = self._normalize_indicator_value_for_excel(indicator_id, value)
+        sheet.cell(row=row, column=month_column).value = excel_value
         written_indicator_ids.append(indicator_id)
+    
+    def _normalize_indicator_value_for_excel(
+        self,
+        indicator_id: str,
+        value: Any,
+    ) -> Any:
+        if isinstance(value, str):
+            return value
+
+        if indicator_id in PERCENTAGE_INDICATOR_IDS:
+            return value / 100.0
+
+        return value
 
     def _normalize_in03_value_for_excel(self, value: float | str) -> float | str:
         if isinstance(value, str):

@@ -256,6 +256,10 @@ class Request(Base):
         nullable=True,
     )
 
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="request"
+    )
+
     request_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     requested_assistance: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -474,3 +478,254 @@ class PlanningTimeValue(Base):
     hours: Mapped[float] = mapped_column(Float, nullable=False)
 
     planning_line: Mapped["PlanningLine"] = relationship(back_populates="time_values")
+
+# =========================
+# Change requests models
+# =========================
+
+class ChangeType(Base):
+    __tablename__ = "change_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        secondary="change_request_change_types",
+        back_populates="change_types",
+    )
+
+
+class ContractImpact(Base):
+    __tablename__ = "contract_impacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="contract_impact"
+    )
+
+
+class WorkRequestImpact(Base):
+    __tablename__ = "work_request_impacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="work_request_impact"
+    )
+
+
+class StakeholderImpact(Base):
+    __tablename__ = "stakeholder_impacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="stakeholder_impact"
+    )
+
+
+class ServiceImpact(Base):
+    __tablename__ = "service_impacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="service_impact"
+    )
+
+
+class ImpactAssessment(Base):
+    __tablename__ = "impact_assessments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="impact_assessment"
+    )
+
+
+class ChangeRequestStatus(Base):
+    __tablename__ = "change_request_statuses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="status"
+    )
+
+
+class BaselineUpdate(Base):
+    __tablename__ = "baseline_updates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="baseline_update"
+    )
+
+
+class ElementType(Base):
+    __tablename__ = "element_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    change_requests: Mapped[List["ChangeRequest"]] = relationship(
+        back_populates="element_type"
+    )
+
+
+class ChangeRequestChangeType(Base):
+    __tablename__ = "change_request_change_types"
+
+    change_request_id: Mapped[int] = mapped_column(
+        ForeignKey("change_requests.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    change_type_id: Mapped[int] = mapped_column(
+        ForeignKey("change_types.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
+class ChangeRequest(Base):
+    __tablename__ = "change_requests"
+
+    # Natural ID from the Excel
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    request_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("requests.id"),
+        nullable=True,
+    )
+
+    source_request_reference_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    functional_area_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("functional_areas.id"),
+        nullable=True,
+    )
+
+    priority_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("priorities.id"),
+        nullable=True,
+    )
+
+    requester_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("people.id"),
+        nullable=True,
+    )
+
+    approver_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("people.id"),
+        nullable=True,
+    )
+
+    contract_impact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contract_impacts.id"),
+        nullable=True,
+    )
+
+    work_request_impact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("work_request_impacts.id"),
+        nullable=True,
+    )
+
+    stakeholder_impact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("stakeholder_impacts.id"),
+        nullable=True,
+    )
+
+    service_impact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("service_impacts.id"),
+        nullable=True,
+    )
+
+    impact_assessment_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("impact_assessments.id"),
+        nullable=True,
+    )
+
+    status_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("change_request_statuses.id"),
+        nullable=True,
+    )
+
+    baseline_update_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("baseline_updates.id"),
+        nullable=True,
+    )
+
+    element_type_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("element_types.id"),
+        nullable=True,
+    )
+
+    modified_work_request_flag: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    created_work_request_flag: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    comments: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    revised_assessment: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    request_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    approval_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    estimated_implementation_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    last_modified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    excel_row_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    request: Mapped[Optional["Request"]] = relationship(
+        back_populates="change_requests"
+    )
+
+    functional_area: Mapped[Optional["FunctionalArea"]] = relationship()
+    priority: Mapped[Optional["Priority"]] = relationship()
+
+    requester: Mapped[Optional["Person"]] = relationship(
+        foreign_keys=[requester_id]
+    )
+
+    approver: Mapped[Optional["Person"]] = relationship(
+        foreign_keys=[approver_id]
+    )
+
+    contract_impact: Mapped[Optional["ContractImpact"]] = relationship(
+        back_populates="change_requests"
+    )
+    work_request_impact: Mapped[Optional["WorkRequestImpact"]] = relationship(
+        back_populates="change_requests"
+    )
+    stakeholder_impact: Mapped[Optional["StakeholderImpact"]] = relationship(
+        back_populates="change_requests"
+    )
+    service_impact: Mapped[Optional["ServiceImpact"]] = relationship(
+        back_populates="change_requests"
+    )
+    impact_assessment: Mapped[Optional["ImpactAssessment"]] = relationship(
+        back_populates="change_requests"
+    )
+    status: Mapped[Optional["ChangeRequestStatus"]] = relationship(
+        back_populates="change_requests"
+    )
+    baseline_update: Mapped[Optional["BaselineUpdate"]] = relationship(
+        back_populates="change_requests"
+    )
+    element_type: Mapped[Optional["ElementType"]] = relationship(
+        back_populates="change_requests"
+    )
+
+    change_types: Mapped[List["ChangeType"]] = relationship(
+        secondary="change_request_change_types",
+        back_populates="change_requests",
+    )
