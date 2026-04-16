@@ -392,12 +392,58 @@ class MainWindow:
             )
             self._append_log(f"IN28-EFIC-IA = {in28_value}")
 
+            self._append_log("Calculando IN20-EFIC-II...")
+            in20_value = indicator_service.calculate_in20_new_requests(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN20-EFIC-II = {in20_value}")
+
+            self._append_log("Calculando IN23-EFIC-IA...")
+            in23_value = indicator_service.calculate_in23_closed_requests(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN23-EFIC-IA = {in23_value}")
+            
+            self._append_log("Calculando IN21-EFIC-IA...")
+            in21_value = indicator_service.calculate_in21_open_requests()
+            self._append_log("Calculando IN26-EFIC-IR...")
+            in26_value = indicator_service.calculate_in26_requests_in_progress_percentage()
+
+            self._append_log("Calculando IN22-EFIC-IA...")
+            in22_value = indicator_service.calculate_in22_delivered_requests(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN22-EFIC-IA = {in22_value}")
+
+            self._append_log("Calculando IN24-EFIC-IA...")
+            in24_value = indicator_service.calculate_in24_change_requests_total(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN24-EFIC-IA = {in24_value}")
+
+            self._append_log("Calculando IN27-EFIC-II...")
+            in27_value = indicator_service.calculate_in27_delivered_requests_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN27-EFIC-II = {in27_value}")
+
             indicator_values = {
                 "IN17-CALS-IR": in17_value,
                 "IN18-CALS-IR": in18_value,
                 "IN19-CALS-IA": in19_value,
-                "IN21-EFIC-IA": indicator_service.calculate_in21_open_requests(),
+                "IN20-EFIC-II": in20_value,
+                "IN21-EFIC-IA": in21_value,
+                "IN22-EFIC-IA": in22_value,
+                "IN23-EFIC-IA": in23_value,
+                "IN24-EFIC-IA": in24_value,
                 "IN25-EFIC-IP": indicator_service.calculate_in25_cancelled_requests(),
+                "IN26-EFIC-IR": in26_value,
+                "IN27-EFIC-II": in27_value,
                 "IN28-EFIC-IA": in28_value,
             }
 

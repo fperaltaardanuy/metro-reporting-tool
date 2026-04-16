@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from sqlalchemy import distinct, func, or_
+from sqlalchemy import distinct, func, case, or_
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode
-
+from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode, ChangeRequest, WorkStatus
+from datetime import date
+import calendar
 
 @dataclass(frozen=True)
 class ReportCodeComplianceValue:
@@ -53,11 +54,24 @@ class MonthlyIndicatorService:
     ) -> int:
         """
         IN18-CALS-IR
+
         Count distinct report_code values in real planning lines
-        that have time values in the selected month.
+        that have time values in the selected month, applying these rules:
+
+        1. IDATGENAGN02 and IDATGENAGD01 are considered the same profile.
+        2. IDATGENGES01 is excluded from the metric.
         """
+        normalized_report_code = case(
+            (
+                PlanningLine.report_code.in_(["IDATGENAGN02", "IDATGENAGD01"]),
+                "IDATGENAGN02",
+            ),
+            else_=PlanningLine.report_code,
+        )
+
         result = (
-            self.session.query(func.count(distinct(PlanningLine.report_code)))
+            self.session.query(func.count(distinct(normalized_report_code)))
+            .select_from(PlanningLine)
             .join(
                 PlanningTimeValue,
                 PlanningTimeValue.planning_line_id == PlanningLine.id,
@@ -65,6 +79,7 @@ class MonthlyIndicatorService:
             .filter(PlanningLine.source_type == "real")
             .filter(PlanningLine.report_code.isnot(None))
             .filter(PlanningLine.report_code != "")
+            .filter(PlanningLine.report_code != "IDATGENGES01")
             .filter(PlanningTimeValue.year == year)
             .filter(PlanningTimeValue.month == month)
             .scalar()
@@ -206,8 +221,8 @@ class MonthlyIndicatorService:
         """
         IN21-EFIC-IA
 
-        Count requests whose status is exactly 'En Curso'.
-        No month filter is applied.
+        Count requests whose current status is exactly 'En Curso'.
+        No date filter is applied.
         """
         result = (
             self.session.query(func.count(Request.id))
@@ -280,3 +295,158 @@ class MonthlyIndicatorService:
             return "error"
 
         return (real_hours / float(at_unit_hours)) * 100
+    
+    def calculate_in20_new_requests(
+        self,
+        year: int,
+        month: int,
+    ) -> int:
+        """
+        IN20-EFIC-II
+
+        Count requests whose request_date falls within the selected month.
+        """
+        result = (
+            self.session.query(func.count(Request.id))
+            .filter(Request.request_date.isnot(None))
+            .filter(func.strftime("%Y", Request.request_date) == str(year))
+            .filter(func.strftime("%m", Request.request_date) == f"{month:02d}")
+            .scalar()
+        )
+
+        return int(result or 0)
+
+
+    def calculate_in23_closed_requests(
+        self,
+        year: int,
+        month: int,
+    ) -> int:
+        """
+        IN23-EFIC-IA
+
+        Count requests whose current status is 'Cerrada' and whose
+        request_status_date falls within the selected month.
+        """
+        result = (
+            self.session.query(func.count(Request.id))
+            .join(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(RequestStatus.name == "Cerrada")
+            .filter(Request.request_status_date.isnot(None))
+            .filter(func.strftime("%Y", Request.request_status_date) == str(year))
+            .filter(func.strftime("%m", Request.request_status_date) == f"{month:02d}")
+            .scalar()
+        )
+
+        return int(result or 0)
+
+
+    def calculate_in26_requests_in_progress_percentage(self) -> float | str:
+        """
+        IN26-EFIC-IR
+
+        Percentage of requests currently in status 'En Curso'
+        relative to IN21-EFIC-IA.
+
+        With the current business definition, this will normally be 100
+        whenever IN21 is greater than 0.
+
+        Returned in 0..100 scale.
+        """
+        numerator = (
+            self.session.query(func.count(Request.id))
+            .join(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(RequestStatus.name == "En Curso")
+            .scalar()
+        )
+
+        denominator = self.calculate_in21_open_requests()
+
+        numerator_value = int(numerator or 0)
+
+        if denominator == 0:
+            if numerator_value == 0:
+                return "-"
+            return "error"
+
+        return (numerator_value / denominator) * 100
+    
+    def calculate_in22_delivered_requests(
+        self,
+        year: int,
+        month: int,
+    ) -> int:
+        """
+        IN22-EFIC-IA
+
+        Count requests whose work status is 'Entregado' and whose
+        work_status_date falls within the selected month.
+        """
+        result = (
+            self.session.query(func.count(Request.id))
+            .join(
+                WorkStatus,
+                Request.work_status_id == WorkStatus.id,
+            )
+            .filter(WorkStatus.name == "Entregado")
+            .filter(Request.work_status_date.isnot(None))
+            .filter(func.strftime("%Y", Request.work_status_date) == str(year))
+            .filter(func.strftime("%m", Request.work_status_date) == f"{month:02d}")
+            .scalar()
+        )
+
+        return int(result or 0)
+
+
+    def calculate_in27_delivered_requests_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN27-EFIC-II
+
+        Percentage of delivered requests in the selected month
+        relative to open/in-progress requests (IN21).
+
+        Returned in 0..100 scale.
+        """
+        numerator = self.calculate_in22_delivered_requests(year, month)
+        denominator = self.calculate_in21_open_requests()
+
+        if denominator == 0:
+            if numerator == 0:
+                return "-"
+            return "error"
+
+        return (numerator / denominator) * 100
+
+
+    def calculate_in24_change_requests_total(
+        self,
+        year: int,
+        month: int,
+    ) -> int:
+        """
+        IN24-EFIC-IA
+
+        Count change requests whose request_date is less than or equal
+        to the end of the selected month.
+        """
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        result = (
+            self.session.query(func.count(ChangeRequest.id))
+            .filter(ChangeRequest.request_date.isnot(None))
+            .filter(ChangeRequest.request_date <= month_end)
+            .scalar()
+        )
+
+        return int(result or 0)
