@@ -432,7 +432,31 @@ class MainWindow:
             )
             self._append_log(f"IN27-EFIC-II = {in27_value}")
 
+            self._append_log("Calculando IN08-EFEC-IP...")
+            in08_value = indicator_service.calculate_in08_change_requests_triggering_new_request_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN08-EFEC-IP = {in08_value}")
+
+            self._append_log("Calculando IN07-EFEC-IP...")
+            in07_value = indicator_service.calculate_in07_modified_requests_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN07-EFEC-IP = {in07_value}")
+
+            self._append_log("Calculando IN02-EFEC-IL...")
+            in02_value = indicator_service.calculate_in02_budget_compliance_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN02-EFEC-IL = {in02_value}")
+
             indicator_values = {
+                "IN02-EFEC-IL": in02_value,
+                "IN07-EFEC-IP": in07_value,
+                "IN08-EFEC-IP": in08_value,
                 "IN17-CALS-IR": in17_value,
                 "IN18-CALS-IR": in18_value,
                 "IN19-CALS-IA": in19_value,

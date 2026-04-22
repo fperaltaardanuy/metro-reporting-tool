@@ -6,7 +6,7 @@ from typing import Sequence
 from sqlalchemy import distinct, func, case, or_
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode, ChangeRequest, WorkStatus
+from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode, ChangeRequest, WorkStatus, ApprovalStatus
 from datetime import date
 import calendar
 
@@ -221,16 +221,28 @@ class MonthlyIndicatorService:
         """
         IN21-EFIC-IA
 
-        Count requests whose current status is exactly 'En Curso'.
-        No date filter is applied.
+        Count requests considered open with this business rule:
+        - approval_status.name == 'MdM Aprobada'
+        - request_status.name is not 'Cancelada', 'Cerrada' or 'Rechazada'
+        - NULL request_status is accepted as open
         """
         result = (
             self.session.query(func.count(Request.id))
             .join(
+                ApprovalStatus,
+                Request.approval_status_id == ApprovalStatus.id,
+            )
+            .outerjoin(
                 RequestStatus,
                 Request.request_status_id == RequestStatus.id,
             )
-            .filter(RequestStatus.name == "En Curso")
+            .filter(ApprovalStatus.name == "MdM Aprobada")
+            .filter(
+                or_(
+                    RequestStatus.name.is_(None),
+                    ~RequestStatus.name.in_(["Cancelada", "Cerrada", "Rechazada"]),
+                )
+            )
             .scalar()
         )
 
@@ -349,10 +361,7 @@ class MonthlyIndicatorService:
         IN26-EFIC-IR
 
         Percentage of requests currently in status 'En Curso'
-        relative to IN21-EFIC-IA.
-
-        With the current business definition, this will normally be 100
-        whenever IN21 is greater than 0.
+        relative to open requests (IN21-EFIC-IA).
 
         Returned in 0..100 scale.
         """
@@ -413,7 +422,7 @@ class MonthlyIndicatorService:
         IN27-EFIC-II
 
         Percentage of delivered requests in the selected month
-        relative to open/in-progress requests (IN21).
+        relative to open requests (IN21-EFIC-IA).
 
         Returned in 0..100 scale.
         """
@@ -436,17 +445,226 @@ class MonthlyIndicatorService:
         """
         IN24-EFIC-IA
 
-        Count change requests whose request_date is less than or equal
-        to the end of the selected month.
+        Count change requests whose request_date is between
+        the start of the selected year and the end of the selected month.
         """
+        start_of_year = date(year, 1, 1)
         last_day = calendar.monthrange(year, month)[1]
         month_end = date(year, month, last_day)
 
         result = (
             self.session.query(func.count(ChangeRequest.id))
             .filter(ChangeRequest.request_date.isnot(None))
+            .filter(ChangeRequest.request_date >= start_of_year)
             .filter(ChangeRequest.request_date <= month_end)
             .scalar()
         )
 
         return int(result or 0)
+    
+    def calculate_in08_change_requests_triggering_new_request_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN08-EFEC-IP
+
+        Percentage of change requests in the selected YTD period
+        that trigger a new work request.
+
+        Period:
+        from January 1st of the selected year
+        to the last day of the selected month.
+
+        Returned in 0..100 scale.
+        """
+        start_of_year = date(year, 1, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        total_change_requests = (
+            self.session.query(func.count(ChangeRequest.id))
+            .filter(ChangeRequest.request_date.isnot(None))
+            .filter(ChangeRequest.request_date >= start_of_year)
+            .filter(ChangeRequest.request_date <= month_end)
+            .scalar()
+        )
+
+        created_work_request_count = (
+            self.session.query(func.count(ChangeRequest.id))
+            .filter(ChangeRequest.request_date.isnot(None))
+            .filter(ChangeRequest.request_date >= start_of_year)
+            .filter(ChangeRequest.request_date <= month_end)
+            .filter(ChangeRequest.created_work_request_flag.is_(True))
+            .scalar()
+        )
+
+        denominator = int(total_change_requests or 0)
+        numerator = int(created_work_request_count or 0)
+
+        if denominator == 0:
+            if numerator == 0:
+                return "-"
+            return "error"
+
+        return (numerator / denominator) * 100
+    
+    def calculate_in07_modified_requests_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN07-EFEC-IP
+
+        Percentage of change requests in the selected YTD period
+        with modified_work_request_flag = True, relative to:
+
+        - requests closed in the selected YTD period
+        - plus requests currently in progress whose request_status_date
+        is less than or equal to the end of the selected month
+
+        Returned in 0..100 scale.
+        """
+        start_of_year = date(year, 1, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        modified_change_requests = (
+            self.session.query(func.count(ChangeRequest.id))
+            .filter(ChangeRequest.request_date.isnot(None))
+            .filter(ChangeRequest.request_date >= start_of_year)
+            .filter(ChangeRequest.request_date <= month_end)
+            .filter(ChangeRequest.modified_work_request_flag.is_(True))
+            .scalar()
+        )
+
+        closed_requests_ytd = (
+            self.session.query(func.count(Request.id))
+            .join(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(RequestStatus.name == "Cerrada")
+            .filter(Request.request_status_date.isnot(None))
+            .filter(Request.request_status_date >= start_of_year)
+            .filter(Request.request_status_date <= month_end)
+            .scalar()
+        )
+
+        in_progress_requests = (
+            self.session.query(func.count(Request.id))
+            .join(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(RequestStatus.name == "En Curso")
+            .filter(Request.request_status_date.isnot(None))
+            .filter(Request.request_status_date <= month_end)
+            .scalar()
+        )
+
+        numerator = int(modified_change_requests or 0)
+        denominator = int(closed_requests_ytd or 0) + int(in_progress_requests or 0)
+
+        if denominator == 0:
+            if numerator == 0:
+                return "-"
+            return "error"
+
+        return (numerator / denominator) * 100
+    
+    def calculate_in02_budget_compliance_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN02-EFEC-IL
+
+        Percentage of actual monthly cost relative to estimated monthly cost,
+        excluding report code IDATGENGES01.
+
+        Returned in 0..100 scale.
+        """
+        estimated_cost = self._calculate_monthly_planning_cost(
+            year=year,
+            month=month,
+            source_type="estimated",
+        )
+
+        if estimated_cost == "error":
+            return "error"
+
+        real_cost = self._calculate_monthly_planning_cost(
+            year=year,
+            month=month,
+            source_type="real",
+        )
+
+        if real_cost == "error":
+            return "error"
+
+        estimated_cost_value = float(estimated_cost or 0.0)
+        real_cost_value = float(real_cost or 0.0)
+
+        if estimated_cost_value == 0:
+            if real_cost_value == 0:
+                return "-"
+            return "error"
+
+        return (real_cost_value / estimated_cost_value) * 100
+
+
+    def _calculate_monthly_planning_cost(
+        self,
+        year: int,
+        month: int,
+        source_type: str,
+    ) -> float | str:
+        rows = (
+            self.session.query(
+                PlanningLine.report_code,
+                func.sum(PlanningTimeValue.hours),
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .select_from(PlanningLine)
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .join(
+                ReportCode,
+                ReportCode.code == PlanningLine.report_code,
+            )
+            .filter(PlanningLine.source_type == source_type)
+            .filter(PlanningLine.report_code.isnot(None))
+            .filter(PlanningLine.report_code != "")
+            .filter(PlanningLine.report_code != "IDATGENGES01")
+            .filter(PlanningTimeValue.year == year)
+            .filter(PlanningTimeValue.month == month)
+            .group_by(
+                PlanningLine.report_code,
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .all()
+        )
+
+        total_cost = 0.0
+
+        for report_code, total_hours, unit_price, at_unit_hours in rows:
+            hours = float(total_hours or 0.0)
+
+            if hours == 0:
+                continue
+
+            if unit_price is None or at_unit_hours is None or float(at_unit_hours) == 0:
+                return "error"
+
+            hourly_cost = float(unit_price) / float(at_unit_hours)
+            total_cost += hours * hourly_cost
+
+        return total_cost
