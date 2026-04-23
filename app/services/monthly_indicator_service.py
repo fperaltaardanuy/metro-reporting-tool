@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from sqlalchemy import distinct, func, case, or_
+from sqlalchemy import distinct, func, case, or_, and_
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode, ChangeRequest, WorkStatus, ApprovalStatus
+from app.db.models import PlanningItem, PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode, ChangeRequest, WorkStatus, ApprovalStatus
 from datetime import date
 import calendar
 
@@ -668,3 +668,259 @@ class MonthlyIndicatorService:
             total_cost += hours * hourly_cost
 
         return total_cost
+
+    def calculate_in06_finished_requests_with_budget_deviation_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN06-EFEC-IL
+
+        Percentage of delivered requests in the selected YTD period
+        whose budget deviation is outside the [-15%, +15%] interval.
+
+        Only delivered requests with a valid budget amount (> 0) are included.
+
+        Delivered requests are selected by:
+        - work_status.name == 'Entregado'
+        - work_status_date between start of year and end of selected month
+
+        Budget deviation per request:
+        - ((real_cost - amount) / amount) * 100
+
+        Real cost is calculated from real planning imputations linked to the request,
+        valued using report_codes.unit_price / report_codes.at_unit_hours,
+        accumulated up to the end of the selected month.
+
+        Returned in 0..100 scale.
+        """
+        start_of_year = date(year, 1, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        delivered_requests = (
+            self.session.query(Request.id, Request.amount)
+            .join(
+                WorkStatus,
+                Request.work_status_id == WorkStatus.id,
+            )
+            .filter(WorkStatus.name == "Entregado")
+            .filter(Request.work_status_date.isnot(None))
+            .filter(Request.work_status_date >= start_of_year)
+            .filter(Request.work_status_date <= month_end)
+            .filter(Request.amount.isnot(None))
+            .filter(Request.amount != 0)
+            .all()
+        )
+
+        if not delivered_requests:
+            return "-"
+
+        delivered_request_ids = [request_id for request_id, _ in delivered_requests]
+
+        cost_rows = (
+            self.session.query(
+                PlanningItem.request_id,
+                PlanningLine.report_code,
+                func.sum(PlanningTimeValue.hours),
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .select_from(PlanningItem)
+            .join(
+                PlanningLine,
+                PlanningLine.planning_item_id == PlanningItem.id,
+            )
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .outerjoin(
+                ReportCode,
+                ReportCode.code == PlanningLine.report_code,
+            )
+            .filter(PlanningItem.request_id.in_(delivered_request_ids))
+            .filter(PlanningLine.source_type == "real")
+            .filter(PlanningTimeValue.year.isnot(None))
+            .filter(PlanningTimeValue.month.isnot(None))
+            .filter(
+                or_(
+                    PlanningTimeValue.year < year,
+                    and_(
+                        PlanningTimeValue.year == year,
+                        PlanningTimeValue.month <= month,
+                    ),
+                )
+            )
+            .group_by(
+                PlanningItem.request_id,
+                PlanningLine.report_code,
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .all()
+        )
+
+        real_cost_by_request: dict[int, float] = {
+            request_id: 0.0 for request_id in delivered_request_ids
+        }
+
+        for request_id, report_code, total_hours, unit_price, at_unit_hours in cost_rows:
+            hours = float(total_hours or 0.0)
+
+            if hours == 0:
+                continue
+
+            if report_code is None or str(report_code).strip() == "":
+                return "error"
+
+            if unit_price is None or at_unit_hours is None or float(at_unit_hours) == 0:
+                return "error"
+
+            hourly_cost = float(unit_price) / float(at_unit_hours)
+            real_cost_by_request[int(request_id)] += hours * hourly_cost
+
+        requests_with_deviation = 0
+
+        for request_id, amount in delivered_requests:
+            budget_amount = float(amount)
+            real_cost = real_cost_by_request.get(int(request_id), 0.0)
+            deviation_percentage = ((real_cost - budget_amount) / budget_amount) * 100
+
+            if deviation_percentage > 15 or deviation_percentage < -15:
+                requests_with_deviation += 1
+
+        denominator = len(delivered_requests)
+
+        if denominator == 0:
+            return "-"
+
+        return (requests_with_deviation / denominator) * 100
+    
+    def calculate_in10_average_budget_deviation_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN10-EFEC-IL
+
+        Average budget deviation percentage across delivered requests
+        in the selected YTD period.
+
+        Only delivered requests with a valid budget amount (> 0) are included.
+
+        Delivered requests are selected by:
+        - work_status.name == 'Entregado'
+        - work_status_date between start of year and end of selected month
+
+        Budget deviation per request:
+        - ((real_cost - amount) / amount) * 100
+
+        Real cost is calculated from real planning imputations linked to the request,
+        valued using report_codes.unit_price / report_codes.at_unit_hours,
+        accumulated up to the end of the selected month.
+
+        Returned in 0..100 scale, but it may be negative.
+        """
+        start_of_year = date(year, 1, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        delivered_requests = (
+            self.session.query(Request.id, Request.amount)
+            .join(
+                WorkStatus,
+                Request.work_status_id == WorkStatus.id,
+            )
+            .filter(WorkStatus.name == "Entregado")
+            .filter(Request.work_status_date.isnot(None))
+            .filter(Request.work_status_date >= start_of_year)
+            .filter(Request.work_status_date <= month_end)
+            .filter(Request.amount.isnot(None))
+            .filter(Request.amount != 0)
+            .all()
+        )
+
+        if not delivered_requests:
+            return "-"
+
+        delivered_request_ids = [request_id for request_id, _ in delivered_requests]
+
+        cost_rows = (
+            self.session.query(
+                PlanningItem.request_id,
+                PlanningLine.report_code,
+                func.sum(PlanningTimeValue.hours),
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .select_from(PlanningItem)
+            .join(
+                PlanningLine,
+                PlanningLine.planning_item_id == PlanningItem.id,
+            )
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .outerjoin(
+                ReportCode,
+                ReportCode.code == PlanningLine.report_code,
+            )
+            .filter(PlanningItem.request_id.in_(delivered_request_ids))
+            .filter(PlanningLine.source_type == "real")
+            .filter(PlanningTimeValue.year.isnot(None))
+            .filter(PlanningTimeValue.month.isnot(None))
+            .filter(
+                or_(
+                    PlanningTimeValue.year < year,
+                    and_(
+                        PlanningTimeValue.year == year,
+                        PlanningTimeValue.month <= month,
+                    ),
+                )
+            )
+            .group_by(
+                PlanningItem.request_id,
+                PlanningLine.report_code,
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .all()
+        )
+
+        real_cost_by_request: dict[int, float] = {
+            request_id: 0.0 for request_id in delivered_request_ids
+        }
+
+        for request_id, report_code, total_hours, unit_price, at_unit_hours in cost_rows:
+            hours = float(total_hours or 0.0)
+
+            if hours == 0:
+                continue
+
+            if report_code is None or str(report_code).strip() == "":
+                return "error"
+
+            if unit_price is None or at_unit_hours is None or float(at_unit_hours) == 0:
+                return "error"
+
+            hourly_cost = float(unit_price) / float(at_unit_hours)
+            real_cost_by_request[int(request_id)] += hours * hourly_cost
+
+        deviation_sum = 0.0
+
+        for request_id, amount in delivered_requests:
+            budget_amount = float(amount)
+            real_cost = real_cost_by_request.get(int(request_id), 0.0)
+            deviation_percentage = ((real_cost - budget_amount) / budget_amount) * 100
+            deviation_sum += deviation_percentage
+
+        denominator = len(delivered_requests)
+
+        if denominator == 0:
+            return "-"
+
+        return deviation_sum / denominator

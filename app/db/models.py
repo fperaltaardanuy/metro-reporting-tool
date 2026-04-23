@@ -281,6 +281,7 @@ class Request(Base):
 
     sc_code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     purchase_order: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     duration_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 

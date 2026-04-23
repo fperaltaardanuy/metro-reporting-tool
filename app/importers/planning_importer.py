@@ -18,6 +18,7 @@ from app.db.models import (
     Responsible,
 )
 
+
 @dataclass
 class WeeklyColumn:
     column_index: int
@@ -29,7 +30,9 @@ class WeeklyColumn:
 PLAN_EST_SHEET = "2. PlanEst Consolidada"
 PLAN_REAL_SHEET = "3. PlanReal"
 REPORT_CODE_SHEET = "090"
+REQUEST_AMOUNT_SHEET = "Importe ST"
 STOP_PLANNING_ID = 999
+
 
 def import_planning_excel(session: Session, excel_path: str) -> None:
     excel_file = Path(excel_path)
@@ -38,6 +41,8 @@ def import_planning_excel(session: Session, excel_path: str) -> None:
         raise FileNotFoundError(f"Excel file not found: {excel_file}")
 
     import_report_codes(session, excel_path)
+    import_request_amounts(session, excel_path)
+
     import_planning_sheet(
         session=session,
         excel_path=excel_path,
@@ -65,7 +70,6 @@ def import_planning_excel(session: Session, excel_path: str) -> None:
 def import_report_codes(session: Session, excel_path: str) -> None:
     raw_df = pd.read_excel(excel_path, sheet_name=REPORT_CODE_SHEET, header=None)
 
-    # Header row is the one where column B says "Código"
     header_row_index = find_row_index_by_first_value(raw_df, target_value="Código", column_index=1)
     if header_row_index is None:
         raise ValueError("Could not locate report code table header in sheet '090'.")
@@ -89,6 +93,56 @@ def import_report_codes(session: Session, excel_path: str) -> None:
         report_code.unit_price = parse_float(raw_df.iat[row_index, 5])
 
     session.flush()
+
+
+def import_request_amounts(session: Session, excel_path: str) -> None:
+    raw_df = pd.read_excel(excel_path, sheet_name=REQUEST_AMOUNT_SHEET, header=None)
+
+    header_row_index = find_request_amount_header_row_index(raw_df)
+    if header_row_index is None:
+        raise ValueError("Could not locate request amount table header in sheet 'Importe ST'.")
+
+    header_values = [normalize_header_value(value) for value in raw_df.iloc[header_row_index].tolist()]
+    data_df = raw_df.iloc[header_row_index + 1 :].copy()
+    data_df.columns = header_values
+    data_df = sanitize_dataframe(data_df)
+    data_df = data_df.dropna(how="all").reset_index(drop=True)
+
+    required_columns = {"ST", "Importe"}
+    actual_columns = set(data_df.columns)
+    missing = required_columns - actual_columns
+    if missing:
+        raise ValueError(
+            f"Missing required columns in sheet 'Importe ST': {sorted(missing)}. "
+            f"Detected columns: {list(data_df.columns)}"
+        )
+
+    for _, row in data_df.iterrows():
+        request_id = parse_int(row.get("ST"))
+        if request_id is None:
+            continue
+
+        amount = parse_float(row.get("Importe"))
+        if amount is None:
+            continue
+
+        request = session.scalar(
+            select(Request).where(Request.id == request_id)
+        )
+        if request is None:
+            continue
+
+        request.amount = amount
+
+    session.flush()
+
+
+def find_request_amount_header_row_index(raw_df: pd.DataFrame) -> Optional[int]:
+    for row_index in range(len(raw_df)):
+        row_values = [normalize_header_value(value) for value in raw_df.iloc[row_index].tolist()]
+        if "ST" in row_values and "Importe" in row_values:
+            return row_index
+    return None
 
 
 def import_planning_sheet(
@@ -118,7 +172,6 @@ def import_planning_sheet(
     for data_pos, (original_row_index, row) in enumerate(data_df.iterrows()):
         planning_id = normalize_planning_id(row.get("ID"))
 
-        # Ignore blank rows between valid rows
         if planning_id is None:
             continue
 
@@ -134,7 +187,6 @@ def import_planning_sheet(
 
         is_first_row_for_this_id = planning_id != last_valid_planning_id
 
-        # The first non-empty row for a new ID is always treated as planning item, never planning line
         if is_first_row_for_this_id:
             if planning_id == STOP_PLANNING_ID:
                 stop_reading_items = True
@@ -152,7 +204,6 @@ def import_planning_sheet(
             last_valid_planning_id = planning_id
             continue
 
-        # From the second row onwards for the same ID, we evaluate as potential detail line
         detail_row = is_detail_row(
             report_code=report_code_value,
             responsible_code=responsible_code,
@@ -209,7 +260,6 @@ def import_planning_sheet(
             weekly_columns=weekly_columns,
         )
 
-        # If this is line 999 and next ID is blank, stop reading the sheet
         if planning_id == STOP_PLANNING_ID:
             next_data_pos = data_pos + 1
             if next_data_pos >= len(data_df):
@@ -340,6 +390,12 @@ def get_or_create_report_code(session: Session, code: str) -> ReportCode:
     return obj
 
 
+def get_request_by_planning_id(session: Session, planning_id: int) -> Optional[Request]:
+    return session.scalar(
+        select(Request).where(Request.id == planning_id)
+    )
+
+
 def get_or_create_planning_item(
     session: Session,
     planning_id: int,
@@ -390,10 +446,6 @@ def get_or_create_planning_item(
     session.flush()
     return obj
 
-def get_request_by_planning_id(session: Session, planning_id: int) -> Optional[Request]:
-    return session.scalar(
-        select(Request).where(Request.id == planning_id)
-    )
 
 def normalize_planning_id(value: object) -> Optional[int]:
     if pd.isna(value):
@@ -415,6 +467,12 @@ def normalize_header_value(value: object) -> Optional[str]:
     if pd.isna(value):
         return None
     return str(value).strip()
+
+
+def sanitize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [normalize_header_value(col) for col in df.columns]
+    return df
 
 
 def normalize_text(value: object) -> Optional[str]:
@@ -440,6 +498,22 @@ def parse_float(value: object) -> Optional[float]:
             return None
         try:
             return float(text)
+        except ValueError:
+            return None
+
+
+def parse_int(value: object) -> Optional[int]:
+    if pd.isna(value):
+        return None
+
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return int(float(text.replace(",", ".")))
         except ValueError:
             return None
 

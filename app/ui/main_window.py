@@ -453,10 +453,26 @@ class MainWindow:
             )
             self._append_log(f"IN02-EFEC-IL = {in02_value}")
 
+            self._append_log("Calculando IN06-EFEC-IL...")
+            in06_value = indicator_service.calculate_in06_finished_requests_with_budget_deviation_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN06-EFEC-IL = {in06_value}")
+
+            self._append_log("Calculando IN10-EFEC-IL...")
+            in10_value = indicator_service.calculate_in10_average_budget_deviation_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
+            self._append_log(f"IN10-EFEC-IL = {in10_value}")
+
             indicator_values = {
                 "IN02-EFEC-IL": in02_value,
+                "IN06-EFEC-IL": in06_value,
                 "IN07-EFEC-IP": in07_value,
                 "IN08-EFEC-IP": in08_value,
+                "IN10-EFEC-IL": in10_value,
                 "IN17-CALS-IR": in17_value,
                 "IN18-CALS-IR": in18_value,
                 "IN19-CALS-IA": in19_value,
