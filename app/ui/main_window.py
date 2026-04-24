@@ -198,6 +198,13 @@ class MainWindow:
         )
         self.generate_monthly_button.pack(side="left")
 
+        self.generate_all_monthly_button = ttk.Button(
+            output_actions_frame,
+            text="Generar mensuales 2024→mes",
+            command=self._generate_monthly_range_from_2024,
+        )
+        self.generate_all_monthly_button.pack(side="left", padx=(8, 0))
+
         status_frame = ttk.LabelFrame(main_frame, text="Estado", padding=12)
         status_frame.pack(fill="both", expand=True)
 
@@ -343,201 +350,17 @@ class MainWindow:
             self._set_busy_state(True)
             self.status_var.set("Generando reporte mensual...")
 
-            self._append_log(
-                f"Generando reporte mensual para {report_month.strftime('%m-%Y')}..."
-            )
-
             session = SessionLocal()
-            indicator_service = MonthlyIndicatorService(session)
-            writer = MonthlyTemplateWriter()
-
-            self._append_log("Leyendo report codes del bloque IN03 desde la plantilla...")
-            report_codes = writer.get_in03_report_codes(output_path)
-            self._append_log(
-                "Report codes IN03 detectados: " + ", ".join(report_codes)
-            )
-
-            self._append_log("Calculando IN03-EFEC-IL...")
-            in03_values = indicator_service.calculate_in03_planning_compliance_by_report_code(
-                year=report_month.year,
-                month=report_month.month,
-                report_codes=report_codes,
-            )
-
-            self._append_log("Calculando IN17-CALS-IR...")
-            in17_value = indicator_service.calculate_in17_people_in_execution(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN17-CALS-IR = {in17_value}")
-
-            self._append_log("Calculando IN18-CALS-IR...")
-            in18_value = indicator_service.calculate_in18_profiles_in_execution(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN18-CALS-IR = {in18_value}")
-
-            self._append_log("Calculando IN19-CALS-IA...")
-            in19_value = indicator_service.calculate_in19_fte_in_execution(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN19-CALS-IA = {in19_value}")
-
-            self._append_log("Calculando IN28-EFIC-IA...")
-            in28_value = indicator_service.calculate_in28_service_director_dedication(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN28-EFIC-IA = {in28_value}")
-
-            self._append_log("Calculando IN20-EFIC-II...")
-            in20_value = indicator_service.calculate_in20_new_requests(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN20-EFIC-II = {in20_value}")
-
-            self._append_log("Calculando IN23-EFIC-IA...")
-            in23_value = indicator_service.calculate_in23_closed_requests(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN23-EFIC-IA = {in23_value}")
-            
-            self._append_log("Calculando IN21-EFIC-IA...")
-            in21_value = indicator_service.calculate_in21_open_requests()
-            self._append_log("Calculando IN26-EFIC-IR...")
-            in26_value = indicator_service.calculate_in26_requests_in_progress_percentage()
-
-            self._append_log("Calculando IN22-EFIC-IA...")
-            in22_value = indicator_service.calculate_in22_delivered_requests(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN22-EFIC-IA = {in22_value}")
-
-            self._append_log("Calculando IN24-EFIC-IA...")
-            in24_value = indicator_service.calculate_in24_change_requests_total(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN24-EFIC-IA = {in24_value}")
-
-            self._append_log("Calculando IN27-EFIC-II...")
-            in27_value = indicator_service.calculate_in27_delivered_requests_percentage(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN27-EFIC-II = {in27_value}")
-
-            self._append_log("Calculando IN08-EFEC-IP...")
-            in08_value = indicator_service.calculate_in08_change_requests_triggering_new_request_percentage(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN08-EFEC-IP = {in08_value}")
-
-            self._append_log("Calculando IN07-EFEC-IP...")
-            in07_value = indicator_service.calculate_in07_modified_requests_percentage(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN07-EFEC-IP = {in07_value}")
-
-            self._append_log("Calculando IN02-EFEC-IL...")
-            in02_value = indicator_service.calculate_in02_budget_compliance_percentage(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN02-EFEC-IL = {in02_value}")
-
-            self._append_log("Calculando IN06-EFEC-IL...")
-            in06_value = indicator_service.calculate_in06_finished_requests_with_budget_deviation_percentage(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN06-EFEC-IL = {in06_value}")
-
-            self._append_log("Calculando IN10-EFEC-IL...")
-            in10_value = indicator_service.calculate_in10_average_budget_deviation_percentage(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN10-EFEC-IL = {in10_value}")
-
-            self._append_log("Calculando IN11-EFEC-IA...")
-            in11_value = indicator_service.calculate_in11_monthly_budget_deviation_percentage(
-                year=report_month.year,
-                month=report_month.month,
-            )
-            self._append_log(f"IN11-EFEC-IA = {in11_value}")
-
-            indicator_values = {
-                "IN02-EFEC-IL": in02_value,
-                "IN06-EFEC-IL": in06_value,
-                "IN07-EFEC-IP": in07_value,
-                "IN08-EFEC-IP": in08_value,
-                "IN10-EFEC-IL": in10_value,
-                "IN11-EFEC-IA": in11_value,
-                "IN17-CALS-IR": in17_value,
-                "IN18-CALS-IR": in18_value,
-                "IN19-CALS-IA": in19_value,
-                "IN20-EFIC-II": in20_value,
-                "IN21-EFIC-IA": in21_value,
-                "IN22-EFIC-IA": in22_value,
-                "IN23-EFIC-IA": in23_value,
-                "IN24-EFIC-IA": in24_value,
-                "IN25-EFIC-IP": indicator_service.calculate_in25_cancelled_requests(),
-                "IN26-EFIC-IR": in26_value,
-                "IN27-EFIC-II": in27_value,
-                "IN28-EFIC-IA": in28_value,
-            }
-
-            self._append_log("Escribiendo resultados en la plantilla Excel...")
-            result = writer.write_monthly_report(
-                workbook_path=output_path,
+            self._generate_monthly_for_period(
+                session=session,
+                output_path=output_path,
                 report_month=report_month,
-                indicator_values=indicator_values,
-                in03_values=in03_values,
             )
 
             self.status_var.set("Reporte mensual generado correctamente.")
-            self._append_log(
-                f"Reporte mensual generado correctamente en la hoja '{result.sheet_name}', "
-                f"columna {result.month_column} ({result.month_label})."
-            )
-
-            if result.written_indicator_ids:
-                self._append_log(
-                    "Indicadores escritos: " + ", ".join(result.written_indicator_ids)
-                )
-
-            if result.written_report_codes:
-                self._append_log(
-                    "Report codes escritos en IN03: " + ", ".join(result.written_report_codes)
-                )
-
-            if result.missing_indicator_ids:
-                self._append_log(
-                    "Indicadores no encontrados en plantilla: "
-                    + ", ".join(result.missing_indicator_ids)
-                )
-
-            if result.missing_report_codes:
-                self._append_log(
-                    "Report codes del bloque IN03 sin valor calculado: "
-                    + ", ".join(result.missing_report_codes)
-                )
-
             messagebox.showinfo(
                 "Reporte mensual generado",
-                (
-                    "El reporte mensual se ha generado correctamente.\n\n"
-                    f"Periodo: {result.month_label}\n"
-                    f"Hoja: {result.sheet_name}"
-                ),
+                f"Se ha generado correctamente el mensual de {report_month.strftime('%m-%Y')}.",
             )
 
         except Exception as ex:
@@ -550,6 +373,296 @@ class MainWindow:
                 session.close()
 
             self._set_busy_state(False)
+
+    def _generate_monthly_range_from_2024(self) -> None:
+        output_path = self.output_file_var.get().strip()
+
+        if not output_path:
+            messagebox.showwarning("Falta fichero", "Selecciona el Excel base de salida.")
+            return
+
+        if not Path(output_path).exists():
+            messagebox.showerror("Fichero no encontrado", f"No existe:\n{output_path}")
+            return
+
+        try:
+            end_month = self._get_selected_report_month()
+        except ValueError as ex:
+            messagebox.showerror("Periodo no válido", str(ex))
+            return
+
+        start_month = date(2024, 1, 1)
+
+        if end_month < start_month:
+            messagebox.showerror(
+                "Periodo no válido",
+                "El mes elegido debe ser enero de 2024 o posterior para esta generación masiva.",
+            )
+            return
+
+        session = None
+
+        try:
+            self._set_busy_state(True)
+            self.status_var.set("Generando mensuales 2024→mes...")
+
+            session = SessionLocal()
+
+            months = list(self._iterate_months(start_month, end_month))
+            total = len(months)
+
+            self._append_log(
+                f"Generando mensuales desde {start_month.strftime('%m-%Y')} "
+                f"hasta {end_month.strftime('%m-%Y')}..."
+            )
+
+            for index, report_month in enumerate(months, start=1):
+                self.status_var.set(
+                    f"Generando mensuales 2024→mes... ({index}/{total}) {report_month.strftime('%m-%Y')}"
+                )
+                self._generate_monthly_for_period(
+                    session=session,
+                    output_path=output_path,
+                    report_month=report_month,
+                )
+
+            self.status_var.set("Generación masiva mensual completada.")
+            messagebox.showinfo(
+                "Generación completada",
+                (
+                    "Se han generado todos los mensuales desde 01-2024 "
+                    f"hasta {end_month.strftime('%m-%Y')}."
+                ),
+            )
+
+        except Exception as ex:
+            self.status_var.set("Se ha producido un error durante la generación masiva.")
+            self._append_log(f"ERROR: {ex}")
+            messagebox.showerror("Error", f"Se ha producido un error:\n\n{ex}")
+
+        finally:
+            if session is not None:
+                session.close()
+
+            self._set_busy_state(False)
+
+    def _generate_monthly_for_period(
+        self,
+        session,
+        output_path: str,
+        report_month: date,
+    ) -> None:
+        self._append_log(
+            f"Generando reporte mensual para {report_month.strftime('%m-%Y')}..."
+        )
+
+        indicator_service = MonthlyIndicatorService(session)
+        writer = MonthlyTemplateWriter()
+
+        self._append_log("Leyendo report codes del bloque IN03 desde la plantilla...")
+        report_codes = writer.get_in03_report_codes(output_path)
+        self._append_log(
+            "Report codes IN03 detectados: " + ", ".join(report_codes)
+        )
+
+        self._append_log("Calculando IN03-EFEC-IL...")
+        in03_values = indicator_service.calculate_in03_planning_compliance_by_report_code(
+            year=report_month.year,
+            month=report_month.month,
+            report_codes=report_codes,
+        )
+
+        self._append_log("Calculando IN17-CALS-IR...")
+        in17_value = indicator_service.calculate_in17_people_in_execution(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN17-CALS-IR = {in17_value}")
+
+        self._append_log("Calculando IN18-CALS-IR...")
+        in18_value = indicator_service.calculate_in18_profiles_in_execution(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN18-CALS-IR = {in18_value}")
+
+        self._append_log("Calculando IN19-CALS-IA...")
+        in19_value = indicator_service.calculate_in19_fte_in_execution(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN19-CALS-IA = {in19_value}")
+
+        self._append_log("Calculando IN28-EFIC-IA...")
+        in28_value = indicator_service.calculate_in28_service_director_dedication(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN28-EFIC-IA = {in28_value}")
+
+        self._append_log("Calculando IN20-EFIC-II...")
+        in20_value = indicator_service.calculate_in20_new_requests(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN20-EFIC-II = {in20_value}")
+
+        self._append_log("Calculando IN23-EFIC-IA...")
+        in23_value = indicator_service.calculate_in23_closed_requests(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN23-EFIC-IA = {in23_value}")
+
+        self._append_log("Calculando IN21-EFIC-IA...")
+        in21_value = indicator_service.calculate_in21_open_requests()
+        self._append_log(f"IN21-EFIC-IA = {in21_value}")
+
+        self._append_log("Calculando IN26-EFIC-IR...")
+        in26_value = indicator_service.calculate_in26_requests_in_progress_percentage()
+        self._append_log(f"IN26-EFIC-IR = {in26_value}")
+
+        self._append_log("Calculando IN22-EFIC-IA...")
+        in22_value = indicator_service.calculate_in22_delivered_requests(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN22-EFIC-IA = {in22_value}")
+
+        self._append_log("Calculando IN24-EFIC-IA...")
+        in24_value = indicator_service.calculate_in24_change_requests_total(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN24-EFIC-IA = {in24_value}")
+
+        self._append_log("Calculando IN25-EFIC-IP...")
+        in25_value = indicator_service.calculate_in25_cancelled_requests()
+        self._append_log(f"IN25-EFIC-IP = {in25_value}")
+
+        self._append_log("Calculando IN27-EFIC-II...")
+        in27_value = indicator_service.calculate_in27_delivered_requests_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN27-EFIC-II = {in27_value}")
+
+        self._append_log("Calculando IN08-EFEC-IP...")
+        in08_value = indicator_service.calculate_in08_change_requests_triggering_new_request_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN08-EFEC-IP = {in08_value}")
+
+        self._append_log("Calculando IN07-EFEC-IP...")
+        in07_value = indicator_service.calculate_in07_modified_requests_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN07-EFEC-IP = {in07_value}")
+
+        self._append_log("Calculando IN02-EFEC-IL...")
+        in02_value = indicator_service.calculate_in02_budget_compliance_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN02-EFEC-IL = {in02_value}")
+
+        self._append_log("Calculando IN06-EFEC-IL...")
+        in06_value = indicator_service.calculate_in06_finished_requests_with_budget_deviation_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN06-EFEC-IL = {in06_value}")
+
+        self._append_log("Calculando IN10-EFEC-IL...")
+        in10_value = indicator_service.calculate_in10_average_budget_deviation_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN10-EFEC-IL = {in10_value}")
+
+        self._append_log("Calculando IN11-EFEC-IA...")
+        in11_value = indicator_service.calculate_in11_monthly_budget_deviation_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN11-EFEC-IA = {in11_value}")
+
+        self._append_log("Calculando IN01-EFEC-IL...")
+        in01_value = indicator_service.calculate_in01_budget_planning_compliance_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN01-EFEC-IL = {in01_value}")
+
+        indicator_values = {
+            "IN01-EFEC-IL": in01_value,
+            "IN02-EFEC-IL": in02_value,
+            "IN06-EFEC-IL": in06_value,
+            "IN07-EFEC-IP": in07_value,
+            "IN08-EFEC-IP": in08_value,
+            "IN10-EFEC-IL": in10_value,
+            "IN11-EFEC-IA": in11_value,
+            "IN17-CALS-IR": in17_value,
+            "IN18-CALS-IR": in18_value,
+            "IN19-CALS-IA": in19_value,
+            "IN20-EFIC-II": in20_value,
+            "IN21-EFIC-IA": in21_value,
+            "IN22-EFIC-IA": in22_value,
+            "IN23-EFIC-IA": in23_value,
+            "IN24-EFIC-IA": in24_value,
+            "IN25-EFIC-IP": in25_value,
+            "IN26-EFIC-IR": in26_value,
+            "IN27-EFIC-II": in27_value,
+            "IN28-EFIC-IA": in28_value,
+        }
+
+        self._append_log("Escribiendo resultados en la plantilla Excel...")
+        result = writer.write_monthly_report(
+            workbook_path=output_path,
+            report_month=report_month,
+            indicator_values=indicator_values,
+            in03_values=in03_values,
+        )
+
+        self._append_log(
+            f"Reporte mensual generado correctamente en la hoja '{result.sheet_name}', "
+            f"columna {result.month_column} ({result.month_label})."
+        )
+
+        if result.written_indicator_ids:
+            self._append_log(
+                "Indicadores escritos: " + ", ".join(result.written_indicator_ids)
+            )
+
+        if result.written_report_codes:
+            self._append_log(
+                "Report codes escritos en IN03: " + ", ".join(result.written_report_codes)
+            )
+
+        if result.missing_indicator_ids:
+            self._append_log(
+                "Indicadores no encontrados en plantilla: "
+                + ", ".join(result.missing_indicator_ids)
+            )
+
+        if result.missing_report_codes:
+            self._append_log(
+                "Report codes del bloque IN03 sin valor calculado: "
+                + ", ".join(result.missing_report_codes)
+            )
+
+    def _iterate_months(self, start_month: date, end_month: date):
+        current = start_month
+
+        while current <= end_month:
+            yield current
+
+            if current.month == 12:
+                current = date(current.year + 1, 1, 1)
+            else:
+                current = date(current.year, current.month + 1, 1)
 
     def _get_selected_report_month(self) -> date:
         month_name = self.report_month_var.get().strip()
@@ -579,11 +692,13 @@ class MainWindow:
         if is_busy:
             self.process_button.config(state="disabled")
             self.generate_monthly_button.config(state="disabled")
-            self.status_var.set("Procesando ficheros...")
+            self.generate_all_monthly_button.config(state="disabled")
+            self.status_var.set("Procesando...")
             self.root.config(cursor="watch")
         else:
             self.process_button.config(state="normal")
             self.generate_monthly_button.config(state="normal")
+            self.generate_all_monthly_button.config(state="normal")
             self.root.config(cursor="")
 
         self.root.update_idletasks()

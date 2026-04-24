@@ -6,7 +6,7 @@ from typing import Sequence
 from sqlalchemy import distinct, func, case, or_, and_
 from sqlalchemy.orm import Session
 
-from app.db.models import PlanningItem, PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode, ChangeRequest, WorkStatus, ApprovalStatus
+from app.db.models import PlanningItem, PlanningLine, PlanningTimeValue, Request, RequestStatus, ReportCode, ChangeRequest, WorkStatus, ApprovalStatus, MonthlyBudget
 from datetime import date
 import calendar
 
@@ -1086,3 +1086,109 @@ class MonthlyIndicatorService:
             cost_by_request[request_id] += hours * hourly_cost
 
         return cost_by_request, invalid_request_ids
+    
+    def calculate_in01_budget_planning_compliance_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN01-EFEC-IL
+
+        Percentage of YTD real planning cost relative to YTD budget.
+
+        YTD budget:
+        sum(monthly_budgets.amount) for the selected year, from January
+        through the selected month inclusive.
+
+        YTD real planning cost:
+        sum of real planning imputations in the selected year, from January
+        through the selected month inclusive, valued using:
+        report_codes.unit_price / report_codes.at_unit_hours
+
+        Returned in 0..100 scale.
+        """
+        budget_total = (
+            self.session.query(func.sum(MonthlyBudget.amount))
+            .filter(MonthlyBudget.year == year)
+            .filter(MonthlyBudget.month <= month)
+            .filter(MonthlyBudget.amount.isnot(None))
+            .scalar()
+        )
+
+        real_cost = self._calculate_ytd_planning_cost(
+            year=year,
+            month=month,
+            source_type="real",
+            excluded_report_codes={"IDATGENGES01"},
+        )
+
+        if real_cost == "error":
+            return "error"
+
+        budget_total_value = float(budget_total or 0.0)
+        real_cost_value = float(real_cost or 0.0)
+
+        if budget_total_value == 0:
+            if real_cost_value == 0:
+                return "-"
+            return "error"
+
+        return (real_cost_value / budget_total_value) * 100
+    
+    def _calculate_ytd_planning_cost(
+        self,
+        year: int,
+        month: int,
+        source_type: str,
+        excluded_report_codes: set[str] | None = None,
+    ) -> float | str:
+        excluded_report_codes = excluded_report_codes or set()
+
+        rows = (
+            self.session.query(
+                PlanningLine.report_code,
+                func.sum(PlanningTimeValue.hours),
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .select_from(PlanningLine)
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .join(
+                ReportCode,
+                ReportCode.code == PlanningLine.report_code,
+            )
+            .filter(PlanningLine.source_type == source_type)
+            .filter(PlanningLine.report_code.isnot(None))
+            .filter(PlanningLine.report_code != "")
+            .filter(PlanningTimeValue.year == year)
+            .filter(PlanningTimeValue.month <= month)
+            .group_by(
+                PlanningLine.report_code,
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .all()
+        )
+
+        total_cost = 0.0
+
+        for report_code, total_hours, unit_price, at_unit_hours in rows:
+            if report_code in excluded_report_codes:
+                continue
+
+            hours = float(total_hours or 0.0)
+
+            if hours == 0:
+                continue
+
+            if unit_price is None or at_unit_hours is None or float(at_unit_hours) == 0:
+                return "error"
+
+            hourly_cost = float(unit_price) / float(at_unit_hours)
+            total_cost += hours * hourly_cost
+
+        return total_cost
