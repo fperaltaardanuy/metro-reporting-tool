@@ -924,3 +924,165 @@ class MonthlyIndicatorService:
             return "-"
 
         return deviation_sum / denominator
+    
+    def calculate_in11_monthly_budget_deviation_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN11-EFEC-IA
+
+        Percentage of open requests whose monthly budget deviation is outside
+        the [-15%, +15%] interval.
+
+        Open request definition:
+        - approval_status.name == 'MdM Aprobada'
+        - request_status.name is not 'Cancelada', 'Cerrada' or 'Rechazada'
+        - NULL request_status is accepted as open
+
+        Monthly deviation is calculated as:
+        ((real_monthly_cost - estimated_monthly_cost) / estimated_monthly_cost) * 100
+
+        Only requests with a calculable estimated monthly cost > 0 are included
+        in the denominator.
+        """
+        open_request_ids = self._get_open_request_ids()
+
+        if not open_request_ids:
+            return "-"
+
+        estimated_cost_by_request, invalid_estimated_request_ids = self._get_monthly_request_costs(
+            request_ids=open_request_ids,
+            year=year,
+            month=month,
+            source_type="estimated",
+        )
+
+        real_cost_by_request, invalid_real_request_ids = self._get_monthly_request_costs(
+            request_ids=open_request_ids,
+            year=year,
+            month=month,
+            source_type="real",
+        )
+
+        invalid_request_ids = invalid_estimated_request_ids.union(invalid_real_request_ids)
+
+        evaluable_request_ids = [
+            request_id
+            for request_id in open_request_ids
+            if request_id not in invalid_request_ids
+            and estimated_cost_by_request.get(request_id, 0.0) > 0
+        ]
+
+        if not evaluable_request_ids:
+            return "-"
+
+        requests_with_deviation = 0
+
+        for request_id in evaluable_request_ids:
+            estimated_cost = estimated_cost_by_request.get(request_id, 0.0)
+            real_cost = real_cost_by_request.get(request_id, 0.0)
+
+            deviation_percentage = ((real_cost - estimated_cost) / estimated_cost) * 100
+
+            if deviation_percentage > 15 or deviation_percentage < -15:
+                requests_with_deviation += 1
+
+        denominator = len(evaluable_request_ids)
+
+        if denominator == 0:
+            return "-"
+
+        return (requests_with_deviation / denominator) * 100
+    
+    def _get_open_request_ids(self) -> list[int]:
+        rows = (
+            self.session.query(Request.id)
+            .join(
+                ApprovalStatus,
+                Request.approval_status_id == ApprovalStatus.id,
+            )
+            .outerjoin(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(ApprovalStatus.name == "MdM Aprobada")
+            .filter(
+                or_(
+                    RequestStatus.name.is_(None),
+                    ~RequestStatus.name.in_(["Cancelada", "Cerrada", "Rechazada"]),
+                )
+            )
+            .all()
+        )
+
+        return [int(request_id) for request_id, in rows]
+
+
+    def _get_monthly_request_costs(
+        self,
+        request_ids: list[int],
+        year: int,
+        month: int,
+        source_type: str,
+    ) -> tuple[dict[int, float], set[int]]:
+        if not request_ids:
+            return {}, set()
+
+        rows = (
+            self.session.query(
+                PlanningItem.request_id,
+                PlanningLine.report_code,
+                func.sum(PlanningTimeValue.hours),
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .select_from(PlanningItem)
+            .join(
+                PlanningLine,
+                PlanningLine.planning_item_id == PlanningItem.id,
+            )
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .outerjoin(
+                ReportCode,
+                ReportCode.code == PlanningLine.report_code,
+            )
+            .filter(PlanningItem.request_id.in_(request_ids))
+            .filter(PlanningLine.source_type == source_type)
+            .filter(PlanningTimeValue.year == year)
+            .filter(PlanningTimeValue.month == month)
+            .group_by(
+                PlanningItem.request_id,
+                PlanningLine.report_code,
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .all()
+        )
+
+        cost_by_request: dict[int, float] = {request_id: 0.0 for request_id in request_ids}
+        invalid_request_ids: set[int] = set()
+
+        for request_id, report_code, total_hours, unit_price, at_unit_hours in rows:
+            request_id = int(request_id)
+            hours = float(total_hours or 0.0)
+
+            if hours == 0:
+                continue
+
+            if report_code is None or str(report_code).strip() == "":
+                invalid_request_ids.add(request_id)
+                continue
+
+            if unit_price is None or at_unit_hours is None or float(at_unit_hours) == 0:
+                invalid_request_ids.add(request_id)
+                continue
+
+            hourly_cost = float(unit_price) / float(at_unit_hours)
+            cost_by_request[request_id] += hours * hourly_cost
+
+        return cost_by_request, invalid_request_ids
