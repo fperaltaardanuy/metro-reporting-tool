@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     FunctionalArea,
+    MonthlyBudget,
     PlanningItem,
     PlanningLine,
     PlanningTimeValue,
@@ -31,6 +32,7 @@ PLAN_EST_SHEET = "2. PlanEst Consolidada"
 PLAN_REAL_SHEET = "3. PlanReal"
 REPORT_CODE_SHEET = "090"
 REQUEST_AMOUNT_SHEET = "Importe ST"
+BUDGET_PLAN_SHEET = "PlanPresupuestaria"
 STOP_PLANNING_ID = 999
 
 
@@ -42,6 +44,7 @@ def import_planning_excel(session: Session, excel_path: str) -> None:
 
     import_report_codes(session, excel_path)
     import_request_amounts(session, excel_path)
+    import_monthly_budgets(session, excel_path)
 
     import_planning_sheet(
         session=session,
@@ -547,3 +550,80 @@ def parse_week_index(value: object) -> Optional[int]:
         return int(text)
 
     return None
+
+
+def import_monthly_budgets(session: Session, excel_path: str) -> None:
+    raw_df = pd.read_excel(excel_path, sheet_name=BUDGET_PLAN_SHEET, header=None)
+
+    # Excel rows are 1-based in your description:
+    # row 3 -> index 2
+    # row 13 -> index 12
+    header_row_index = 2
+    amount_row_index = 12
+
+    # Columns F:DU in Excel -> indexes 5 to 124 in pandas (0-based), inclusive
+    start_col_index = 5
+    end_col_index = 124
+
+    for col_index in range(start_col_index, end_col_index + 1, 2):
+        raw_period_value = raw_df.iat[header_row_index, col_index]
+        raw_amount_value = raw_df.iat[amount_row_index, col_index]
+
+        period = parse_budget_period(raw_period_value)
+        if period is None:
+            continue
+
+        year, month = period
+        amount = parse_float(raw_amount_value)
+
+        budget = get_or_create_monthly_budget(
+            session=session,
+            year=year,
+            month=month,
+        )
+        budget.amount = amount
+
+    session.flush()
+
+
+def parse_budget_period(value: object) -> Optional[tuple[int, int]]:
+    if pd.isna(value):
+        return None
+
+    parsed = pd.to_datetime(value, errors="coerce", dayfirst=True)
+    if not pd.isna(parsed):
+        return int(parsed.year), int(parsed.month)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    parsed = pd.to_datetime(text, errors="coerce", dayfirst=True)
+    if not pd.isna(parsed):
+        return int(parsed.year), int(parsed.month)
+
+    return None
+
+
+def get_or_create_monthly_budget(
+    session: Session,
+    year: int,
+    month: int,
+) -> MonthlyBudget:
+    existing = session.scalar(
+        select(MonthlyBudget).where(
+            MonthlyBudget.year == year,
+            MonthlyBudget.month == month,
+        )
+    )
+    if existing is not None:
+        return existing
+
+    obj = MonthlyBudget(
+        year=year,
+        month=month,
+        amount=None,
+    )
+    session.add(obj)
+    session.flush()
+    return obj

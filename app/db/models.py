@@ -730,3 +730,19 @@ class ChangeRequest(Base):
         secondary="change_request_change_types",
         back_populates="change_requests",
     )
+
+class MonthlyBudget(Base):
+    __tablename__ = "monthly_budgets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "year",
+            "month",
+            name="uq_monthly_budgets_year_month",
+        ),
+    )
