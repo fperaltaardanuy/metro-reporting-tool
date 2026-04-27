@@ -1192,3 +1192,144 @@ class MonthlyIndicatorService:
             total_cost += hours * hourly_cost
 
         return total_cost
+    
+    def calculate_in05_finished_requests_with_schedule_deviation_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN05-EFEC-IL
+
+        Percentage of delivered requests in the selected YTD period
+        whose delivery date deviates from the planned end date.
+
+        A request is considered to have schedule deviation when:
+        work_status_date != planned_end_date
+
+        Only requests with valid planning dates are included:
+        - planned_start_date is not null
+        - planned_end_date is not null
+        - planned_end_date >= planned_start_date
+        """
+        start_of_year = date(year, 1, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        delivered_requests = (
+            self.session.query(
+                Request.planned_start_date,
+                Request.planned_end_date,
+                Request.work_status_date,
+            )
+            .join(
+                WorkStatus,
+                Request.work_status_id == WorkStatus.id,
+            )
+            .filter(WorkStatus.name == "Entregado")
+            .filter(Request.work_status_date.isnot(None))
+            .filter(Request.work_status_date >= start_of_year)
+            .filter(Request.work_status_date <= month_end)
+            .filter(Request.planned_start_date.isnot(None))
+            .filter(Request.planned_end_date.isnot(None))
+            .filter(Request.planned_end_date >= Request.planned_start_date)
+            .all()
+        )
+
+        if not delivered_requests:
+            return "-"
+
+        valid_count = 0
+        deviated_count = 0
+
+        for planned_start_date, planned_end_date, work_status_date in delivered_requests:
+            if planned_start_date is None or planned_end_date is None or work_status_date is None:
+                continue
+
+            valid_count += 1
+
+            if work_status_date != planned_end_date:
+                deviated_count += 1
+
+        if valid_count == 0:
+            return "-"
+
+        return (deviated_count / valid_count) * 100
+    
+    def calculate_in12_average_schedule_deviation_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN12-EFEC-IL
+
+        Average schedule deviation percentage across delivered requests
+        in the selected YTD period.
+
+        Planned duration:
+        planned_end_date - planned_start_date
+
+        Real duration:
+        work_status_date - planned_start_date
+
+        Deviation percentage:
+        ((real_duration_days - planned_duration_days) / planned_duration_days) * 100
+
+        Only requests with valid dates and a positive planned duration are included.
+        Invalid requests are ignored.
+        """
+        start_of_year = date(year, 1, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        delivered_requests = (
+            self.session.query(
+                Request.planned_start_date,
+                Request.planned_end_date,
+                Request.work_status_date,
+            )
+            .join(
+                WorkStatus,
+                Request.work_status_id == WorkStatus.id,
+            )
+            .filter(WorkStatus.name == "Entregado")
+            .filter(Request.work_status_date.isnot(None))
+            .filter(Request.work_status_date >= start_of_year)
+            .filter(Request.work_status_date <= month_end)
+            .filter(Request.planned_start_date.isnot(None))
+            .filter(Request.planned_end_date.isnot(None))
+            .filter(Request.planned_end_date >= Request.planned_start_date)
+            .all()
+        )
+
+        if not delivered_requests:
+            return "-"
+
+        deviation_sum = 0.0
+        valid_count = 0
+
+        for planned_start_date, planned_end_date, work_status_date in delivered_requests:
+            if planned_start_date is None or planned_end_date is None or work_status_date is None:
+                continue
+
+            planned_duration_days = (planned_end_date - planned_start_date).days
+            real_duration_days = (work_status_date - planned_start_date).days
+
+            if planned_duration_days <= 0:
+                continue
+
+            if real_duration_days < 0:
+                continue
+
+            deviation_percentage = (
+                (real_duration_days - planned_duration_days) / planned_duration_days
+            ) * 100
+
+            deviation_sum += deviation_percentage
+            valid_count += 1
+
+        if valid_count == 0:
+            return "-"
+
+        return deviation_sum / valid_count
