@@ -32,6 +32,7 @@ IN03_LAST_ROW = 18
 PERCENTAGE_INDICATOR_IDS = {
     "IN01-EFEC-IL",
     "IN02-EFEC-IL",
+    "IN04-EFEC-IP",
     "IN05-EFEC-IL",
     "IN06-EFEC-IL",
     "IN07-EFEC-IP",
@@ -39,11 +40,12 @@ PERCENTAGE_INDICATOR_IDS = {
     "IN10-EFEC-IL",
     "IN11-EFEC-IA",
     "IN12-EFEC-IL",
+    "IN13-CALS-IR",
+    "IN14-CALS-IR",
     "IN26-EFIC-IR",
     "IN27-EFIC-II",
     "IN28-EFIC-IA",
 }
-
 @dataclass(frozen=True)
 class MonthlyTemplateWriteResult:
     sheet_name: str

@@ -125,20 +125,22 @@ def import_request_amounts(session: Session, excel_path: str) -> None:
         if request_id is None:
             continue
 
-        amount = parse_float(row.get("Importe"))
-        if amount is None:
-            continue
-
         request = session.scalar(
             select(Request).where(Request.id == request_id)
         )
         if request is None:
             continue
 
-        request.amount = amount
+        amount = parse_float(row.get("Importe"))
+        if amount is not None:
+            request.amount = amount
+
+        request.less_48h = parse_si_no_bool(row.get("IN04 limite < 48 h"))
+        request.different_profiles = parse_si_no_bool(row.get("IN13 Perfiles distintos"))
+        request.specific_profiles = parse_si_no_bool(row.get("IN14 Perfiles específicos"))
 
     session.flush()
-
+    
 
 def find_request_amount_header_row_index(raw_df: pd.DataFrame) -> Optional[int]:
     for row_index in range(len(raw_df)):
@@ -519,6 +521,33 @@ def parse_int(value: object) -> Optional[int]:
             return int(float(text.replace(",", ".")))
         except ValueError:
             return None
+
+def parse_si_no_bool(value: object) -> Optional[bool]:
+    if pd.isna(value):
+        return None
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)):
+        if value == 1 or value == 1.0:
+            return True
+        if value == 0 or value == 0.0:
+            return False
+
+    text = str(value).strip().lower()
+    if not text:
+        return None
+
+    truthy = {"si", "sí", "true", "verdadero", "yes", "1", "1.0"}
+    falsy = {"no", "false", "falso", "0", "0.0"}
+
+    if text in truthy:
+        return True
+    if text in falsy:
+        return False
+
+    return None
 
 
 def parse_date(value: object):

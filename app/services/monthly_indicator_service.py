@@ -1333,3 +1333,155 @@ class MonthlyIndicatorService:
             return "-"
 
         return deviation_sum / valid_count
+
+    def calculate_in04_evaluated_within_48h_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN04-EFEC-IP
+
+        Percentage of requests registered in the selected YTD period
+        whose less_48h flag is True.
+
+        Period:
+        from January 1st of the selected year
+        to the last day of the selected month.
+        """
+        start_of_year = date(year, 1, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        denominator = (
+            self.session.query(func.count(Request.id))
+            .filter(Request.request_date.isnot(None))
+            .filter(Request.request_date >= start_of_year)
+            .filter(Request.request_date <= month_end)
+            .scalar()
+        )
+
+        numerator = (
+            self.session.query(func.count(Request.id))
+            .filter(Request.request_date.isnot(None))
+            .filter(Request.request_date >= start_of_year)
+            .filter(Request.request_date <= month_end)
+            .filter(Request.less_48h.is_(True))
+            .scalar()
+        )
+
+        denominator_value = int(denominator or 0)
+        numerator_value = int(numerator or 0)
+
+        if denominator_value == 0:
+            if numerator_value == 0:
+                return "-"
+            return "error"
+
+        return (numerator_value / denominator_value) * 100
+
+
+    def calculate_in13_requests_with_profile_deviation_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN13-CALS-IR
+
+        Percentage of delivered requests up to the end of the selected month
+        whose different_profiles flag is True.
+
+        Period:
+        accumulated up to the selected month end, without lower year bound.
+        """
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        denominator = (
+            self.session.query(func.count(Request.id))
+            .join(
+                WorkStatus,
+                Request.work_status_id == WorkStatus.id,
+            )
+            .filter(WorkStatus.name == "Entregado")
+            .filter(Request.work_status_date.isnot(None))
+            .filter(Request.work_status_date <= month_end)
+            .scalar()
+        )
+
+        numerator = (
+            self.session.query(func.count(Request.id))
+            .join(
+                WorkStatus,
+                Request.work_status_id == WorkStatus.id,
+            )
+            .filter(WorkStatus.name == "Entregado")
+            .filter(Request.work_status_date.isnot(None))
+            .filter(Request.work_status_date <= month_end)
+            .filter(Request.different_profiles.is_(True))
+            .scalar()
+        )
+
+        denominator_value = int(denominator or 0)
+        numerator_value = int(numerator or 0)
+
+        if denominator_value == 0:
+            if numerator_value == 0:
+                return "-"
+            return "error"
+
+        return (numerator_value / denominator_value) * 100
+
+
+    def calculate_in14_requests_with_specific_profiles_percentage(
+        self,
+        year: int,
+        month: int,
+    ) -> float | str:
+        """
+        IN14-CALS-IR
+
+        Percentage of requests with approval status 'MdM Aprobada'
+        up to the end of the selected month whose specific_profiles flag is True.
+
+        Period:
+        accumulated up to the selected month end, using request_date.
+        """
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = date(year, month, last_day)
+
+        denominator = (
+            self.session.query(func.count(Request.id))
+            .join(
+                ApprovalStatus,
+                Request.approval_status_id == ApprovalStatus.id,
+            )
+            .filter(ApprovalStatus.name == "MdM Aprobada")
+            .filter(Request.request_date.isnot(None))
+            .filter(Request.request_date <= month_end)
+            .scalar()
+        )
+
+        numerator = (
+            self.session.query(func.count(Request.id))
+            .join(
+                ApprovalStatus,
+                Request.approval_status_id == ApprovalStatus.id,
+            )
+            .filter(ApprovalStatus.name == "MdM Aprobada")
+            .filter(Request.request_date.isnot(None))
+            .filter(Request.request_date <= month_end)
+            .filter(Request.specific_profiles.is_(True))
+            .scalar()
+        )
+
+        denominator_value = int(denominator or 0)
+        numerator_value = int(numerator or 0)
+
+        if denominator_value == 0:
+            if numerator_value == 0:
+                return "-"
+            return "error"
+
+        return (numerator_value / denominator_value) * 100

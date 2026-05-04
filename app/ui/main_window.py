@@ -610,9 +610,31 @@ class MainWindow:
         )
         self._append_log(f"IN12-EFEC-IL = {in12_value}")
 
+        self._append_log("Calculando IN04-EFEC-IP...")
+        in04_value = indicator_service.calculate_in04_evaluated_within_48h_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN04-EFEC-IP = {in04_value}")
+
+        self._append_log("Calculando IN13-CALS-IR...")
+        in13_value = indicator_service.calculate_in13_requests_with_profile_deviation_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN13-CALS-IR = {in13_value}")
+
+        self._append_log("Calculando IN14-CALS-IR...")
+        in14_value = indicator_service.calculate_in14_requests_with_specific_profiles_percentage(
+            year=report_month.year,
+            month=report_month.month,
+        )
+        self._append_log(f"IN14-CALS-IR = {in14_value}")
+
         indicator_values = {
             "IN01-EFEC-IL": in01_value,
             "IN02-EFEC-IL": in02_value,
+            "IN04-EFEC-IP": in04_value,
             "IN05-EFEC-IL": in05_value,
             "IN06-EFEC-IL": in06_value,
             "IN07-EFEC-IP": in07_value,
@@ -620,6 +642,8 @@ class MainWindow:
             "IN10-EFEC-IL": in10_value,
             "IN11-EFEC-IA": in11_value,
             "IN12-EFEC-IL": in12_value,
+            "IN13-CALS-IR": in13_value,
+            "IN14-CALS-IR": in14_value,
             "IN17-CALS-IR": in17_value,
             "IN18-CALS-IR": in18_value,
             "IN19-CALS-IA": in19_value,
