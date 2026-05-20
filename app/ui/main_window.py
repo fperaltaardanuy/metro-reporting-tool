@@ -91,7 +91,15 @@ class MainWindow:
         )
         description_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        content_frame = ttk.Frame(main_frame, style="App.TFrame")
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill="both", expand=True)
+
+        data_tab = ttk.Frame(notebook, style="App.TFrame", padding=(0, 14, 0, 0))
+        charts_tab = ttk.Frame(notebook, style="App.TFrame", padding=(0, 14, 0, 0))
+        notebook.add(data_tab, text="Datos y reportes")
+        notebook.add(charts_tab, text="Soporte para gráficas")
+
+        content_frame = ttk.Frame(data_tab, style="App.TFrame")
         content_frame.pack(fill="both", expand=True)
         content_frame.columnconfigure(0, weight=3, uniform="content")
         content_frame.columnconfigure(1, weight=2, uniform="content")
@@ -310,6 +318,7 @@ class MainWindow:
             variable.trace_add("write", self._refresh_file_statuses)
 
         self._refresh_file_statuses()
+        self._build_charts_tab(charts_tab)
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self.root)
@@ -373,6 +382,46 @@ class MainWindow:
         style.configure("TEntry", padding=6)
         style.configure("TButton", padding=(12, 7))
         style.configure("Accent.TButton", padding=(14, 8), font=("Segoe UI", 9, "bold"))
+
+    def _build_charts_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        placeholder_frame = ttk.LabelFrame(
+            parent,
+            text="Soporte para gráficas",
+            padding=(18, 16, 18, 18),
+        )
+        placeholder_frame.grid(row=0, column=0, sticky="new")
+        placeholder_frame.columnconfigure(0, weight=1)
+
+        ttk.Label(
+            placeholder_frame,
+            text="Generación de datos para gráficas",
+            style="SectionTitle.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Label(
+            placeholder_frame,
+            text=(
+                "Este apartado queda reservado para exportar datasets preparados "
+                "que después se usarán en herramientas específicas de visualización."
+            ),
+            style="Hint.TLabel",
+            wraplength=760,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        ttk.Label(
+            placeholder_frame,
+            text=(
+                "Próximos usos previstos: CSVs por indicador y periodo, agregados "
+                "desde SQLite y ficheros compatibles con PowerBI."
+            ),
+            style="Hint.TLabel",
+            wraplength=760,
+            justify="left",
+        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
 
     def _load_config(self) -> dict[str, object]:
         if not self.CONFIG_PATH.exists():

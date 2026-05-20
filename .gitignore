@@ -72,6 +72,7 @@ Thumbs.db
 *.xlsx
 *.xls
 *.csv
+*.pdf
 
 # If later you want to version sample input files,
 # remove the relevant pattern above and use a samples/ folder.
