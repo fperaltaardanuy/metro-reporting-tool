@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tkinter as tk
 from datetime import date
 from pathlib import Path
@@ -15,6 +16,7 @@ from app.services.monthly_template_writer import MonthlyTemplateWriter
 
 
 class MainWindow:
+    CONFIG_PATH = Path(__file__).resolve().parents[2] / "app_config.json"
     MONTH_OPTIONS = [
         ("01", "Enero"),
         ("02", "Febrero"),
@@ -35,11 +37,20 @@ class MainWindow:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Metro Reporting Tool")
-        self.root.geometry("840x620")
-        self.root.minsize(780, 560)
+        self.root.geometry("1040x760")
+        self.root.minsize(900, 680)
+
+        self.config = self._load_config()
+        self.show_developer_actions = bool(
+            self.config.get("show_developer_actions", False)
+        )
 
         today = date.today()
         default_month_name = self.MONTH_OPTIONS[today.month - 1][1]
+
+        self.file_status_vars: list[tk.StringVar] = []
+        self.file_buttons: list[ttk.Button] = []
+        self.action_buttons: list[ttk.Button] = []
 
         self.requests_file_var = tk.StringVar()
         self.change_requests_file_var = tk.StringVar()
@@ -47,182 +58,406 @@ class MainWindow:
         self.output_file_var = tk.StringVar()
         self.report_month_var = tk.StringVar(value=default_month_name)
         self.report_year_var = tk.StringVar(value=str(today.year))
-        self.status_var = tk.StringVar(value="Selecciona los ficheros de entrada.")
+        self.status_var = tk.StringVar(
+            value="Preparado. Selecciona los ficheros de entrada."
+        )
 
         self._build_ui()
 
     def _build_ui(self) -> None:
-        main_frame = ttk.Frame(self.root, padding=16)
+        self._configure_styles()
+
+        main_frame = ttk.Frame(self.root, style="App.TFrame", padding=20)
         main_frame.pack(fill="both", expand=True)
 
+        header_frame = ttk.Frame(main_frame, style="App.TFrame")
+        header_frame.pack(fill="x", pady=(0, 18))
+        header_frame.columnconfigure(0, weight=1)
+
         title_label = ttk.Label(
-            main_frame,
+            header_frame,
             text="Metro Reporting Tool",
-            font=("Segoe UI", 16, "bold"),
+            style="Title.TLabel",
         )
-        title_label.pack(anchor="w", pady=(0, 16))
+        title_label.grid(row=0, column=0, sticky="w")
 
         description_label = ttk.Label(
-            main_frame,
+            header_frame,
             text=(
-                "Selecciona los Excel de entrada, procesa los datos para regenerar la base de datos "
-                "y después trabaja sobre el fichero Excel de salida/base para generar el reporte mensual."
+                "Importa los Excel de entrada, actualiza la base SQLite y genera los indicadores "
+                "mensuales sobre la plantilla de salida."
             ),
-            wraplength=780,
-            justify="left",
+            style="Subtitle.TLabel",
         )
-        description_label.pack(anchor="w", pady=(0, 20))
+        description_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        files_frame = ttk.LabelFrame(main_frame, text="Ficheros de entrada", padding=12)
-        files_frame.pack(fill="x", pady=(0, 16))
+        content_frame = ttk.Frame(main_frame, style="App.TFrame")
+        content_frame.pack(fill="both", expand=True)
+        content_frame.columnconfigure(0, weight=3, uniform="content")
+        content_frame.columnconfigure(1, weight=2, uniform="content")
+        content_frame.rowconfigure(0, weight=1)
 
-        ttk.Label(files_frame, text="Excel de solicitudes (ST):").grid(
-            row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8)
+        workflow_frame = ttk.Frame(content_frame, style="App.TFrame")
+        workflow_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        workflow_frame.columnconfigure(0, weight=1)
+
+        status_frame = ttk.Frame(content_frame, style="App.TFrame")
+        status_frame.grid(row=0, column=1, sticky="nsew")
+        status_frame.columnconfigure(0, weight=1)
+        status_frame.rowconfigure(1, weight=1)
+
+        files_frame = ttk.LabelFrame(
+            workflow_frame,
+            text="1. Ficheros de entrada",
+            padding=(16, 12, 16, 16),
         )
-        ttk.Entry(
-            files_frame,
-            textvariable=self.requests_file_var,
-            width=80,
-        ).grid(row=0, column=1, sticky="ew", pady=(0, 8))
-        ttk.Button(
-            files_frame,
-            text="Seleccionar...",
-            command=self._select_requests_file,
-        ).grid(row=0, column=2, padx=(8, 0), pady=(0, 8))
-
-        ttk.Label(files_frame, text="Excel de solicitudes de cambio:").grid(
-            row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8)
-        )
-        ttk.Entry(
-            files_frame,
-            textvariable=self.change_requests_file_var,
-            width=80,
-        ).grid(row=1, column=1, sticky="ew", pady=(0, 8))
-        ttk.Button(
-            files_frame,
-            text="Seleccionar...",
-            command=self._select_change_requests_file,
-        ).grid(row=1, column=2, padx=(8, 0), pady=(0, 8))
-
-        ttk.Label(files_frame, text="Excel de planificación:").grid(
-            row=2, column=0, sticky="w", padx=(0, 8)
-        )
-        ttk.Entry(
-            files_frame,
-            textvariable=self.planning_file_var,
-            width=80,
-        ).grid(row=2, column=1, sticky="ew")
-        ttk.Button(
-            files_frame,
-            text="Seleccionar...",
-            command=self._select_planning_file,
-        ).grid(row=2, column=2, padx=(8, 0))
-
+        files_frame.grid(row=0, column=0, sticky="ew", pady=(0, 14))
         files_frame.columnconfigure(1, weight=1)
 
-        process_frame = ttk.Frame(main_frame)
-        process_frame.pack(fill="x", pady=(0, 16))
+        self._add_file_picker_row(
+            parent=files_frame,
+            row=0,
+            title="Solicitudes ST",
+            description="Excel principal de solicitudes.",
+            variable=self.requests_file_var,
+            command=self._select_requests_file,
+        )
+        self._add_file_picker_row(
+            parent=files_frame,
+            row=1,
+            title="Solicitudes de cambio",
+            description="Excel con cambios asociados a solicitudes.",
+            variable=self.change_requests_file_var,
+            command=self._select_change_requests_file,
+        )
+        self._add_file_picker_row(
+            parent=files_frame,
+            row=2,
+            title="Planificación",
+            description="Excel de planificación y recursos.",
+            variable=self.planning_file_var,
+            command=self._select_planning_file,
+        )
+
+        process_frame = ttk.Frame(workflow_frame, style="Card.TFrame", padding=16)
+        process_frame.grid(row=1, column=0, sticky="ew", pady=(0, 14))
+        process_frame.columnconfigure(0, weight=1)
+
+        process_text_frame = ttk.Frame(process_frame, style="Card.TFrame")
+        process_text_frame.grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        ttk.Label(
+            process_text_frame,
+            text="Actualizar base de datos",
+            style="SectionTitle.TLabel",
+        ).pack(anchor="w")
+        ttk.Label(
+            process_text_frame,
+            text="Recrea metro_requests.db e importa los tres Excel seleccionados.",
+            style="Hint.TLabel",
+        ).pack(anchor="w", pady=(4, 0))
 
         self.process_button = ttk.Button(
             process_frame,
             text="Procesar ficheros",
             command=self._process_files,
+            style="Accent.TButton",
         )
-        self.process_button.pack(side="left")
+        self.process_button.grid(row=0, column=1, sticky="e")
+        self.action_buttons.append(self.process_button)
 
-        output_file_frame = ttk.LabelFrame(main_frame, text="Fichero de salida / plantilla", padding=12)
-        output_file_frame.pack(fill="x", pady=(0, 16))
-
-        ttk.Label(output_file_frame, text="Excel base de reporte:").grid(
-            row=0, column=0, sticky="w", padx=(0, 8)
+        output_file_frame = ttk.LabelFrame(
+            workflow_frame,
+            text="2. Plantilla de salida",
+            padding=(16, 12, 16, 16),
         )
-        ttk.Entry(
-            output_file_frame,
-            textvariable=self.output_file_var,
-            width=80,
-        ).grid(row=0, column=1, sticky="ew")
-        ttk.Button(
-            output_file_frame,
-            text="Seleccionar...",
-            command=self._select_output_file,
-        ).grid(row=0, column=2, padx=(8, 0))
-
+        output_file_frame.grid(row=2, column=0, sticky="ew", pady=(0, 14))
         output_file_frame.columnconfigure(1, weight=1)
 
-        report_period_frame = ttk.LabelFrame(main_frame, text="Periodo de reporte", padding=12)
-        report_period_frame.pack(fill="x", pady=(0, 16))
+        self._add_file_picker_row(
+            parent=output_file_frame,
+            row=0,
+            title="Excel base de reporte",
+            description="Plantilla que se actualizará con los indicadores calculados.",
+            variable=self.output_file_var,
+            command=self._select_output_file,
+        )
 
-        ttk.Label(report_period_frame, text="Mes:").grid(
+        report_frame = ttk.LabelFrame(
+            workflow_frame,
+            text="3. Periodo y generación",
+            padding=(16, 12, 16, 16),
+        )
+        report_frame.grid(row=3, column=0, sticky="ew")
+        report_frame.columnconfigure(0, weight=1)
+
+        period_controls_frame = ttk.Frame(report_frame)
+        period_controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        period_controls_frame.columnconfigure(4, weight=1)
+
+        ttk.Label(period_controls_frame, text="Mes", style="FieldLabel.TLabel").grid(
             row=0, column=0, sticky="w", padx=(0, 8)
         )
 
         month_combobox = ttk.Combobox(
-            report_period_frame,
+            period_controls_frame,
             textvariable=self.report_month_var,
             values=self.MONTH_NAMES,
-            width=14,
+            width=16,
             state="readonly",
         )
         month_combobox.grid(row=0, column=1, sticky="w", padx=(0, 20))
 
-        ttk.Label(report_period_frame, text="Año:").grid(
+        ttk.Label(period_controls_frame, text="Año", style="FieldLabel.TLabel").grid(
             row=0, column=2, sticky="w", padx=(0, 8)
         )
 
         ttk.Spinbox(
-            report_period_frame,
+            period_controls_frame,
             from_=2020,
             to=2100,
             textvariable=self.report_year_var,
             width=8,
         ).grid(row=0, column=3, sticky="w")
 
-        help_label = ttk.Label(
-            report_period_frame,
-            text=(
-                "Este periodo se usará para identificar la columna mensual a actualizar "
-                "o crear en el Excel de salida."
-            ),
-            wraplength=720,
-            justify="left",
-        )
-        help_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(10, 0))
-
-        output_actions_frame = ttk.LabelFrame(main_frame, text="Generación de reportes", padding=12)
-        output_actions_frame.pack(fill="x", pady=(0, 16))
+        output_actions_frame = ttk.Frame(report_frame)
+        output_actions_frame.grid(row=1, column=0, sticky="ew")
+        output_actions_frame.columnconfigure(2, weight=1)
 
         self.generate_monthly_button = ttk.Button(
             output_actions_frame,
             text="Generar mensual",
             command=self._generate_monthly,
+            style="Accent.TButton",
         )
-        self.generate_monthly_button.pack(side="left")
+        self.generate_monthly_button.grid(row=0, column=0, sticky="w")
+        self.action_buttons.append(self.generate_monthly_button)
 
-        self.generate_all_monthly_button = ttk.Button(
-            output_actions_frame,
-            text="Generar mensuales 2024→mes",
-            command=self._generate_monthly_range_from_2024,
+        if self.show_developer_actions:
+            self.generate_all_monthly_button = ttk.Button(
+                output_actions_frame,
+                text="Dev: generar mensuales 2024→mes",
+                command=self._generate_monthly_range_from_2024,
+            )
+            self.generate_all_monthly_button.grid(
+                row=0, column=1, sticky="w", padx=(8, 0)
+            )
+            self.action_buttons.append(self.generate_all_monthly_button)
+
+        status_card = ttk.LabelFrame(
+            status_frame, text="Estado", padding=(16, 12, 16, 16)
         )
-        self.generate_all_monthly_button.pack(side="left", padx=(8, 0))
-
-        status_frame = ttk.LabelFrame(main_frame, text="Estado", padding=12)
-        status_frame.pack(fill="both", expand=True)
+        status_card.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        status_card.columnconfigure(0, weight=1)
 
         status_label = ttk.Label(
-            status_frame,
+            status_card,
             textvariable=self.status_var,
-            wraplength=760,
+            wraplength=360,
             justify="left",
+            style="Status.TLabel",
         )
-        status_label.pack(anchor="w", pady=(0, 12))
+        status_label.grid(row=0, column=0, sticky="ew")
+
+        self.progress_bar = ttk.Progressbar(
+            status_card,
+            mode="indeterminate",
+            length=240,
+        )
+        self.progress_bar.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+
+        log_frame = ttk.LabelFrame(
+            status_frame, text="Registro", padding=(12, 10, 12, 12)
+        )
+        log_frame.grid(row=1, column=0, sticky="nsew")
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
 
         self.log_text = tk.Text(
-            status_frame,
-            height=14,
+            log_frame,
+            height=18,
             wrap="word",
             state="disabled",
+            background="#fbfdff",
+            foreground="#172033",
+            borderwidth=0,
+            padx=10,
+            pady=10,
+            font=("Consolas", 9),
         )
-        self.log_text.pack(fill="both", expand=True)
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+
+        log_scrollbar = ttk.Scrollbar(
+            log_frame,
+            orient="vertical",
+            command=self.log_text.yview,
+        )
+        log_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.log_text.configure(yscrollcommand=log_scrollbar.set)
+
+        clear_log_button = ttk.Button(
+            log_frame,
+            text="Limpiar registro",
+            command=self._clear_log,
+        )
+        clear_log_button.grid(row=1, column=0, sticky="w", pady=(10, 0))
+
+        for variable in (
+            self.requests_file_var,
+            self.change_requests_file_var,
+            self.planning_file_var,
+            self.output_file_var,
+        ):
+            variable.trace_add("write", self._refresh_file_statuses)
+
+        self._refresh_file_statuses()
+
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self.root)
+
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+
+        self.root.configure(background="#f5f7fb")
+
+        style.configure("TFrame", background="#ffffff")
+        style.configure("App.TFrame", background="#f5f7fb")
+        style.configure("Card.TFrame", background="#ffffff", relief="flat")
+        style.configure(
+            "Title.TLabel",
+            background="#f5f7fb",
+            foreground="#172033",
+            font=("Segoe UI", 20, "bold"),
+        )
+        style.configure(
+            "Subtitle.TLabel",
+            background="#f5f7fb",
+            foreground="#5c667a",
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "SectionTitle.TLabel",
+            background="#ffffff",
+            foreground="#172033",
+            font=("Segoe UI", 11, "bold"),
+        )
+        style.configure(
+            "FieldLabel.TLabel",
+            background="#ffffff",
+            foreground="#334155",
+            font=("Segoe UI", 9, "bold"),
+        )
+        style.configure(
+            "Hint.TLabel",
+            background="#ffffff",
+            foreground="#64748b",
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "Status.TLabel",
+            background="#ffffff",
+            foreground="#172033",
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.configure(
+            "Badge.TLabel",
+            background="#ffffff",
+            foreground="#475569",
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "TLabelframe", background="#ffffff", bordercolor="#d7dee8", relief="solid"
+        )
+        style.configure(
+            "TLabelframe.Label", foreground="#172033", font=("Segoe UI", 10, "bold")
+        )
+        style.configure("TEntry", padding=6)
+        style.configure("TButton", padding=(12, 7))
+        style.configure("Accent.TButton", padding=(14, 8), font=("Segoe UI", 9, "bold"))
+
+    def _load_config(self) -> dict[str, object]:
+        if not self.CONFIG_PATH.exists():
+            return {}
+
+        try:
+            with self.CONFIG_PATH.open(encoding="utf-8") as config_file:
+                config = json.load(config_file)
+        except json.JSONDecodeError as ex:
+            messagebox.showwarning(
+                "Configuración no válida",
+                (
+                    f"No se ha podido leer {self.CONFIG_PATH.name}. "
+                    f"Se usará la configuración por defecto.\n\n{ex}"
+                ),
+            )
+            return {}
+
+        if not isinstance(config, dict):
+            messagebox.showwarning(
+                "Configuración no válida",
+                (
+                    f"{self.CONFIG_PATH.name} debe contener un objeto JSON. "
+                    "Se usará la configuración por defecto."
+                ),
+            )
+            return {}
+
+        return config
+
+    def _add_file_picker_row(
+        self,
+        parent: ttk.LabelFrame,
+        row: int,
+        title: str,
+        description: str,
+        variable: tk.StringVar,
+        command,
+    ) -> None:
+        text_frame = ttk.Frame(parent)
+        text_frame.grid(row=row, column=0, sticky="nw", padx=(0, 12), pady=(8, 8))
+
+        ttk.Label(text_frame, text=title, style="FieldLabel.TLabel").pack(anchor="w")
+        ttk.Label(
+            text_frame, text=description, style="Hint.TLabel", wraplength=180
+        ).pack(anchor="w", pady=(3, 0))
+
+        entry = ttk.Entry(parent, textvariable=variable)
+        entry.grid(row=row, column=1, sticky="ew", pady=(8, 8))
+
+        button = ttk.Button(parent, text="Seleccionar", command=command)
+        button.grid(row=row, column=2, sticky="e", padx=(10, 0), pady=(8, 8))
+        self.file_buttons.append(button)
+
+        status_var = tk.StringVar(value="Pendiente")
+        ttk.Label(parent, textvariable=status_var, style="Badge.TLabel").grid(
+            row=row,
+            column=3,
+            sticky="e",
+            padx=(10, 0),
+            pady=(8, 8),
+        )
+        self.file_status_vars.append(status_var)
+
+    def _refresh_file_statuses(self, *_args) -> None:
+        variables = (
+            self.requests_file_var,
+            self.change_requests_file_var,
+            self.planning_file_var,
+            self.output_file_var,
+        )
+
+        for variable, status_var in zip(variables, self.file_status_vars):
+            path = variable.get().strip()
+            if not path:
+                status_var.set("Pendiente")
+            elif Path(path).exists():
+                status_var.set("Listo")
+            else:
+                status_var.set("No encontrado")
+
+    def _clear_log(self) -> None:
+        self.log_text.config(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.config(state="disabled")
 
     def _select_requests_file(self) -> None:
         path = filedialog.askopenfilename(
@@ -262,7 +497,9 @@ class MainWindow:
         planning_path = self.planning_file_var.get().strip()
 
         if not requests_path:
-            messagebox.showwarning("Falta fichero", "Selecciona el Excel de solicitudes.")
+            messagebox.showwarning(
+                "Falta fichero", "Selecciona el Excel de solicitudes."
+            )
             return
 
         if not change_requests_path:
@@ -273,19 +510,27 @@ class MainWindow:
             return
 
         if not planning_path:
-            messagebox.showwarning("Falta fichero", "Selecciona el Excel de planificación.")
+            messagebox.showwarning(
+                "Falta fichero", "Selecciona el Excel de planificación."
+            )
             return
 
         if not Path(requests_path).exists():
-            messagebox.showerror("Fichero no encontrado", f"No existe:\n{requests_path}")
+            messagebox.showerror(
+                "Fichero no encontrado", f"No existe:\n{requests_path}"
+            )
             return
 
         if not Path(change_requests_path).exists():
-            messagebox.showerror("Fichero no encontrado", f"No existe:\n{change_requests_path}")
+            messagebox.showerror(
+                "Fichero no encontrado", f"No existe:\n{change_requests_path}"
+            )
             return
 
         if not Path(planning_path).exists():
-            messagebox.showerror("Fichero no encontrado", f"No existe:\n{planning_path}")
+            messagebox.showerror(
+                "Fichero no encontrado", f"No existe:\n{planning_path}"
+            )
             return
 
         self._set_busy_state(True)
@@ -311,7 +556,9 @@ class MainWindow:
             self._append_log("Excel de planificación importado correctamente.")
 
             self.status_var.set("Proceso completado correctamente.")
-            messagebox.showinfo("Proceso completado", "Los ficheros se han procesado correctamente.")
+            messagebox.showinfo(
+                "Proceso completado", "Los ficheros se han procesado correctamente."
+            )
 
         except Exception as ex:
             if session is not None:
@@ -331,7 +578,9 @@ class MainWindow:
         output_path = self.output_file_var.get().strip()
 
         if not output_path:
-            messagebox.showwarning("Falta fichero", "Selecciona el Excel base de salida.")
+            messagebox.showwarning(
+                "Falta fichero", "Selecciona el Excel base de salida."
+            )
             return
 
         if not Path(output_path).exists():
@@ -364,7 +613,9 @@ class MainWindow:
             )
 
         except Exception as ex:
-            self.status_var.set("Se ha producido un error durante la generación mensual.")
+            self.status_var.set(
+                "Se ha producido un error durante la generación mensual."
+            )
             self._append_log(f"ERROR: {ex}")
             messagebox.showerror("Error", f"Se ha producido un error:\n\n{ex}")
 
@@ -378,7 +629,9 @@ class MainWindow:
         output_path = self.output_file_var.get().strip()
 
         if not output_path:
-            messagebox.showwarning("Falta fichero", "Selecciona el Excel base de salida.")
+            messagebox.showwarning(
+                "Falta fichero", "Selecciona el Excel base de salida."
+            )
             return
 
         if not Path(output_path).exists():
@@ -436,7 +689,9 @@ class MainWindow:
             )
 
         except Exception as ex:
-            self.status_var.set("Se ha producido un error durante la generación masiva.")
+            self.status_var.set(
+                "Se ha producido un error durante la generación masiva."
+            )
             self._append_log(f"ERROR: {ex}")
             messagebox.showerror("Error", f"Se ha producido un error:\n\n{ex}")
 
@@ -461,15 +716,15 @@ class MainWindow:
 
         self._append_log("Leyendo report codes del bloque IN03 desde la plantilla...")
         report_codes = writer.get_in03_report_codes(output_path)
-        self._append_log(
-            "Report codes IN03 detectados: " + ", ".join(report_codes)
-        )
+        self._append_log("Report codes IN03 detectados: " + ", ".join(report_codes))
 
         self._append_log("Calculando IN03-EFEC-IL...")
-        in03_values = indicator_service.calculate_in03_planning_compliance_by_report_code(
-            year=report_month.year,
-            month=report_month.month,
-            report_codes=report_codes,
+        in03_values = (
+            indicator_service.calculate_in03_planning_compliance_by_report_code(
+                year=report_month.year,
+                month=report_month.month,
+                report_codes=report_codes,
+            )
         )
 
         self._append_log("Calculando IN17-CALS-IR...")
@@ -576,23 +831,29 @@ class MainWindow:
         self._append_log(f"IN06-EFEC-IL = {in06_value}")
 
         self._append_log("Calculando IN10-EFEC-IL...")
-        in10_value = indicator_service.calculate_in10_average_budget_deviation_percentage(
-            year=report_month.year,
-            month=report_month.month,
+        in10_value = (
+            indicator_service.calculate_in10_average_budget_deviation_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
         )
         self._append_log(f"IN10-EFEC-IL = {in10_value}")
 
         self._append_log("Calculando IN11-EFEC-IA...")
-        in11_value = indicator_service.calculate_in11_monthly_budget_deviation_percentage(
-            year=report_month.year,
-            month=report_month.month,
+        in11_value = (
+            indicator_service.calculate_in11_monthly_budget_deviation_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
         )
         self._append_log(f"IN11-EFEC-IA = {in11_value}")
 
         self._append_log("Calculando IN01-EFEC-IL...")
-        in01_value = indicator_service.calculate_in01_budget_planning_compliance_percentage(
-            year=report_month.year,
-            month=report_month.month,
+        in01_value = (
+            indicator_service.calculate_in01_budget_planning_compliance_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
         )
         self._append_log(f"IN01-EFEC-IL = {in01_value}")
 
@@ -604,9 +865,11 @@ class MainWindow:
         self._append_log(f"IN05-EFEC-IL = {in05_value}")
 
         self._append_log("Calculando IN12-EFEC-IL...")
-        in12_value = indicator_service.calculate_in12_average_schedule_deviation_percentage(
-            year=report_month.year,
-            month=report_month.month,
+        in12_value = (
+            indicator_service.calculate_in12_average_schedule_deviation_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
         )
         self._append_log(f"IN12-EFEC-IL = {in12_value}")
 
@@ -618,16 +881,20 @@ class MainWindow:
         self._append_log(f"IN04-EFEC-IP = {in04_value}")
 
         self._append_log("Calculando IN13-CALS-IR...")
-        in13_value = indicator_service.calculate_in13_requests_with_profile_deviation_percentage(
-            year=report_month.year,
-            month=report_month.month,
+        in13_value = (
+            indicator_service.calculate_in13_requests_with_profile_deviation_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
         )
         self._append_log(f"IN13-CALS-IR = {in13_value}")
 
         self._append_log("Calculando IN14-CALS-IR...")
-        in14_value = indicator_service.calculate_in14_requests_with_specific_profiles_percentage(
-            year=report_month.year,
-            month=report_month.month,
+        in14_value = (
+            indicator_service.calculate_in14_requests_with_specific_profiles_percentage(
+                year=report_month.year,
+                month=report_month.month,
+            )
         )
         self._append_log(f"IN14-CALS-IR = {in14_value}")
 
@@ -678,7 +945,8 @@ class MainWindow:
 
         if result.written_report_codes:
             self._append_log(
-                "Report codes escritos en IN03: " + ", ".join(result.written_report_codes)
+                "Report codes escritos en IN03: "
+                + ", ".join(result.written_report_codes)
             )
 
         if result.missing_indicator_ids:
@@ -729,17 +997,18 @@ class MainWindow:
         return date(year, month, 1)
 
     def _set_busy_state(self, is_busy: bool) -> None:
+        button_state = "disabled" if is_busy else "normal"
+
         if is_busy:
-            self.process_button.config(state="disabled")
-            self.generate_monthly_button.config(state="disabled")
-            self.generate_all_monthly_button.config(state="disabled")
             self.status_var.set("Procesando...")
             self.root.config(cursor="watch")
+            self.progress_bar.start(12)
         else:
-            self.process_button.config(state="normal")
-            self.generate_monthly_button.config(state="normal")
-            self.generate_all_monthly_button.config(state="normal")
             self.root.config(cursor="")
+            self.progress_bar.stop()
+
+        for button in self.action_buttons + self.file_buttons:
+            button.config(state=button_state)
 
         self.root.update_idletasks()
 
