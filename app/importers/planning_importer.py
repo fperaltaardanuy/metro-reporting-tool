@@ -188,7 +188,7 @@ def import_planning_sheet(
         report_code_value = normalize_text(row.get("Código de Informe"))
         responsible_code = normalize_text(row.get("RESP"))
 
-        functional_area = get_or_create_functional_area(session, functional_area_name)
+        functional_area = get_existing_functional_area(session, functional_area_name)
 
         is_first_row_for_this_id = planning_id != last_valid_planning_id
 
@@ -356,19 +356,13 @@ def is_detail_row(
     return False
 
 
-def get_or_create_functional_area(session: Session, name: Optional[str]) -> Optional[FunctionalArea]:
+def get_existing_functional_area(session: Session, name: Optional[str]) -> Optional[FunctionalArea]:
     if name is None:
         return None
 
-    existing = session.scalar(select(FunctionalArea).where(FunctionalArea.name == name))
-    if existing is not None:
-        return existing
-
-    obj = FunctionalArea(name=name)
-    session.add(obj)
-    session.flush()
-    return obj
-
+    return session.scalar(
+        select(FunctionalArea).where(FunctionalArea.name == name)
+    )
 
 def get_or_create_responsible(session: Session, code: Optional[str]) -> Optional[Responsible]:
     if code is None:
