@@ -11,6 +11,7 @@ from app.db.session import SessionLocal
 from app.importers.change_requests_importer import import_change_requests_excel
 from app.importers.planning_importer import import_planning_excel
 from app.importers.solicitudes_importer import import_solicitudes_excel
+from app.services.graph_support_writer import GraphSupportWriter
 from app.services.monthly_indicator_service import MonthlyIndicatorService
 from app.services.monthly_template_writer import MonthlyTemplateWriter
 
@@ -58,6 +59,9 @@ class MainWindow:
         self.output_file_var = tk.StringVar()
         self.report_month_var = tk.StringVar(value=default_month_name)
         self.report_year_var = tk.StringVar(value=str(today.year))
+        self.graph_cm_file_var = tk.StringVar()
+        self.graph_month_var = tk.StringVar(value=default_month_name)
+        self.graph_year_var = tk.StringVar(value=str(today.year))
         self.status_var = tk.StringVar(
             value="Preparado. Selecciona los ficheros de entrada."
         )
@@ -387,41 +391,92 @@ class MainWindow:
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(0, weight=1)
 
-        placeholder_frame = ttk.LabelFrame(
+        graph_frame = ttk.LabelFrame(
             parent,
             text="Soporte para gráficas",
             padding=(18, 16, 18, 18),
         )
-        placeholder_frame.grid(row=0, column=0, sticky="new")
-        placeholder_frame.columnconfigure(0, weight=1)
+        graph_frame.grid(row=0, column=0, sticky="new")
+        graph_frame.columnconfigure(1, weight=1)
 
         ttk.Label(
-            placeholder_frame,
+            graph_frame,
             text="Generación de datos para gráficas",
             style="SectionTitle.TLabel",
-        ).grid(row=0, column=0, sticky="w")
+        ).grid(row=0, column=0, columnspan=3, sticky="w")
 
         ttk.Label(
-            placeholder_frame,
+            graph_frame,
             text=(
-                "Este apartado queda reservado para exportar datasets preparados "
-                "que después se usarán en herramientas específicas de visualización."
+                "Selecciona el Cuadro de Mando y el mes final. La aplicación recreará "
+                "la hoja 'Soporte-graficas' con los bloques de datos definidos para "
+                "preparar gráficas en Excel, PowerBI u otra herramienta."
             ),
             style="Hint.TLabel",
             wraplength=760,
             justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 18))
 
+        ttk.Label(graph_frame, text="Cuadro de Mando", style="FieldLabel.TLabel").grid(
+            row=2, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+        ttk.Entry(graph_frame, textvariable=self.graph_cm_file_var).grid(
+            row=2, column=1, sticky="ew", pady=(0, 10)
+        )
+        self.graph_select_cm_button = ttk.Button(
+            graph_frame,
+            text="Seleccionar",
+            command=self._select_graph_cm_file,
+        )
+        self.graph_select_cm_button.grid(
+            row=2, column=2, sticky="e", padx=(10, 0), pady=(0, 10)
+        )
+        self.action_buttons.append(self.graph_select_cm_button)
+
+        ttk.Label(graph_frame, text="Mes final", style="FieldLabel.TLabel").grid(
+            row=3, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+
+        period_frame = ttk.Frame(graph_frame)
+        period_frame.grid(row=3, column=1, sticky="w", pady=(0, 10))
+
+        ttk.Combobox(
+            period_frame,
+            textvariable=self.graph_month_var,
+            values=self.MONTH_NAMES,
+            width=16,
+            state="readonly",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
+
+        ttk.Spinbox(
+            period_frame,
+            from_=2020,
+            to=2100,
+            textvariable=self.graph_year_var,
+            width=8,
+        ).grid(row=0, column=1, sticky="w")
+
+        self.generate_graph_support_button = ttk.Button(
+            graph_frame,
+            text="Generar soporte para gráficas",
+            command=self._generate_graph_support,
+            style="Accent.TButton",
+        )
+        self.generate_graph_support_button.grid(
+            row=4, column=1, sticky="w", pady=(6, 0)
+        )
+        self.action_buttons.append(self.generate_graph_support_button)
+
+        self.graph_status_var = tk.StringVar(
+            value="La hoja de soporte se añadirá al CM seleccionado."
+        )
         ttk.Label(
-            placeholder_frame,
-            text=(
-                "Próximos usos previstos: CSVs por indicador y periodo, agregados "
-                "desde SQLite y ficheros compatibles con PowerBI."
-            ),
-            style="Hint.TLabel",
+            graph_frame,
+            textvariable=self.graph_status_var,
+            style="Status.TLabel",
             wraplength=760,
             justify="left",
-        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=5, column=0, columnspan=3, sticky="ew", pady=(18, 0))
 
     def _load_config(self) -> dict[str, object]:
         if not self.CONFIG_PATH.exists():
@@ -507,6 +562,89 @@ class MainWindow:
         self.log_text.config(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.config(state="disabled")
+
+    def _select_graph_cm_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Selecciona el Cuadro de Mando",
+            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],
+        )
+        if path:
+            self.graph_cm_file_var.set(path)
+
+    def _generate_graph_support(self) -> None:
+        workbook_path = self.graph_cm_file_var.get().strip()
+
+        if not workbook_path:
+            messagebox.showwarning("Falta fichero", "Selecciona el Cuadro de Mando.")
+            return
+
+        if not Path(workbook_path).exists():
+            messagebox.showerror(
+                "Fichero no encontrado", f"No existe:\n{workbook_path}"
+            )
+            return
+
+        try:
+            graph_month = self._get_selected_graph_month()
+        except ValueError as ex:
+            messagebox.showerror("Periodo no válido", str(ex))
+            return
+
+        session = None
+
+        try:
+            self._set_busy_state(True)
+            self.status_var.set("Generando soporte para gráficas...")
+            self.graph_status_var.set("Generando hoja de soporte...")
+
+            session = SessionLocal()
+            result = GraphSupportWriter().write_support_sheet(
+                workbook_path=workbook_path,
+                session=session,
+                year=graph_month.year,
+                end_month=graph_month.month,
+            )
+
+            self.graph_status_var.set(
+                f"Hoja '{result.sheet_name}' generada correctamente "
+                f"con {result.graph_count} bloques de datos."
+            )
+            self.status_var.set("Soporte para gráficas generado correctamente.")
+            messagebox.showinfo(
+                "Soporte generado",
+                (
+                    f"Se ha generado la hoja '{result.sheet_name}' "
+                    f"en el Cuadro de Mando seleccionado."
+                ),
+            )
+
+        except Exception as ex:
+            self.graph_status_var.set("Se ha producido un error al generar el soporte.")
+            self.status_var.set("Error generando soporte para gráficas.")
+            messagebox.showerror("Error", f"Se ha producido un error:\n\n{ex}")
+
+        finally:
+            if session is not None:
+                session.close()
+
+            self._set_busy_state(False)
+
+    def _get_selected_graph_month(self) -> date:
+        month_name = self.graph_month_var.get().strip()
+        year_text = self.graph_year_var.get().strip()
+
+        if month_name not in self.MONTH_NAME_TO_NUMBER:
+            raise ValueError("Selecciona un mes válido.")
+
+        try:
+            year = int(year_text)
+        except ValueError as ex:
+            raise ValueError("El año debe ser numérico.") from ex
+
+        if year < 2000 or year > 2100:
+            raise ValueError("El año debe estar entre 2000 y 2100.")
+
+        return date(year, self.MONTH_NAME_TO_NUMBER[month_name], 1)
 
     def _select_requests_file(self) -> None:
         path = filedialog.askopenfilename(
