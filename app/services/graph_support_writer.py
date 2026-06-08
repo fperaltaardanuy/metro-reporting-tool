@@ -424,6 +424,50 @@ class GraphSupportWriter:
         )
         graph_count += 1
 
+        final_service_monthly_graphs = [
+            (
+                "Número de ETCs en ejecución",
+                [
+                    SeriesDefinition(
+                        label="IN19-CALS-IA",
+                        indicator_id="IN19-CALS-IA",
+                    )
+                ],
+            ),
+            (
+                "Dedicación del Director de Servicio",
+                [
+                    SeriesDefinition(
+                        label="IN28-EFIC-IA",
+                        indicator_id="IN28-EFIC-IA",
+                        percentage=True,
+                    )
+                ],
+            ),
+            (
+                "Tiempo de respuesta en la valoración de solicitudes <= 48h",
+                [
+                    SeriesDefinition(
+                        label="IN04-EFEC-IP",
+                        indicator_id="IN04-EFEC-IP",
+                        percentage=True,
+                    )
+                ],
+            ),
+        ]
+
+        for title, series in final_service_monthly_graphs:
+            current_row = self._write_monthly_graph(
+                sheet,
+                current_row,
+                title=title,
+                months=[month for _, month, _ in month_columns],
+                series=series,
+                source_sheet=source_sheet,
+                month_columns=month_columns,
+            )
+            graph_count += 1
+
         workbook.save(workbook_path)
         return GraphSupportWriteResult(
             sheet_name=SUPPORT_SHEET_NAME,
