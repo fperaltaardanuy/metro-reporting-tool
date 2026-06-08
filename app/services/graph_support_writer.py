@@ -82,11 +82,16 @@ class GraphSupportWriter:
         sheet = workbook.create_sheet(SUPPORT_SHEET_NAME)
         self._configure_sheet(sheet)
 
-        month_columns = self._get_month_columns(source_sheet, year, end_month)
-        if not month_columns:
+        workbook_month_columns = self._get_workbook_month_columns(source_sheet, year)
+        if not any(month <= end_month for month in workbook_month_columns):
             raise ValueError(
                 "No se han encontrado columnas mensuales del año seleccionado en el CM."
             )
+        month_columns = self._build_support_month_columns(
+            workbook_month_columns=workbook_month_columns,
+            year=year,
+            end_month=end_month,
+        )
 
         current_row = 1
         graph_count = 0
@@ -96,7 +101,7 @@ class GraphSupportWriter:
             sheet,
             current_row,
             title=f"ST Creadas en {year}",
-            months=[month for _, month in month_columns],
+            months=[month for _, month, _ in month_columns],
             series=[
                 SeriesDefinition(
                     label="IN20-EFIC-II",
@@ -142,7 +147,7 @@ class GraphSupportWriter:
                 sheet,
                 current_row,
                 title=title,
-                months=[month for _, month in month_columns],
+                months=[month for _, month, _ in month_columns],
                 series=series,
                 source_sheet=source_sheet,
                 month_columns=month_columns,
@@ -225,7 +230,7 @@ class GraphSupportWriter:
                 sheet,
                 current_row,
                 title=title,
-                months=[month for _, month in month_columns],
+                months=[month for _, month, _ in month_columns],
                 series=series,
                 source_sheet=source_sheet,
                 month_columns=month_columns,
@@ -364,7 +369,7 @@ class GraphSupportWriter:
                 sheet,
                 current_row,
                 title=title,
-                months=[month for _, month in month_columns],
+                months=[month for _, month, _ in month_columns],
                 series=series,
                 source_sheet=source_sheet,
                 month_columns=month_columns,
@@ -386,7 +391,7 @@ class GraphSupportWriter:
         months: list[date],
         series: list[SeriesDefinition],
         source_sheet,
-        month_columns: list[tuple[int, date]],
+        month_columns: list[tuple[int | None, date, bool]],
     ) -> int:
         title_row = start_row
         header_row = start_row + 1
@@ -414,7 +419,10 @@ class GraphSupportWriter:
 
             values = self._read_values_from_row(source_sheet, source_row, month_columns)
             if definition.cumulative:
-                values = self._accumulate(values)
+                values = self._accumulate(
+                    values=values,
+                    force_zero_flags=[force_zero for _, _, force_zero in month_columns],
+                )
 
             for index, value in enumerate(values, start=FIRST_DATA_COLUMN):
                 cell = sheet.cell(row=row, column=index)
@@ -498,13 +506,12 @@ class GraphSupportWriter:
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9EAF7")
 
-    def _get_month_columns(
+    def _get_workbook_month_columns(
         self,
         sheet,
         year: int,
-        end_month: int,
-    ) -> list[tuple[int, date]]:
-        result: list[tuple[int, date]] = []
+    ) -> dict[int, int]:
+        result: dict[int, int] = {}
 
         for column in range(FIRST_MONTH_COLUMN, sheet.max_column + 1):
             month = self._normalize_month(
@@ -513,11 +520,25 @@ class GraphSupportWriter:
             if month is None:
                 continue
 
-            if month.year == year and 1 <= month.month <= end_month:
-                result.append((column, month))
+            if month.year == year:
+                result[month.month] = column
 
-        result.sort(key=lambda item: item[1])
         return result
+
+    def _build_support_month_columns(
+        self,
+        workbook_month_columns: dict[int, int],
+        year: int,
+        end_month: int,
+    ) -> list[tuple[int | None, date, bool]]:
+        return [
+            (
+                workbook_month_columns.get(month) if month <= end_month else None,
+                date(year, month, 1),
+                month > end_month,
+            )
+            for month in range(1, 13)
+        ]
 
     def _normalize_month(self, value: Any) -> date | None:
         if isinstance(value, datetime):
@@ -553,14 +574,20 @@ class GraphSupportWriter:
         self,
         sheet,
         row: int | None,
-        month_columns: list[tuple[int, date]],
+        month_columns: list[tuple[int | None, date, bool]],
     ) -> list[float | None]:
         if row is None:
             return [None for _ in month_columns]
 
         return [
-            self._normalize_cell_value(sheet.cell(row=row, column=column).value)
-            for column, _ in month_columns
+            (
+                0.0
+                if force_zero or column is None
+                else self._normalize_cell_value(
+                    sheet.cell(row=row, column=column).value
+                )
+            )
+            for column, _, force_zero in month_columns
         ]
 
     def _normalize_cell_value(self, value: Any) -> float | None:
@@ -577,11 +604,19 @@ class GraphSupportWriter:
 
         return None
 
-    def _accumulate(self, values: list[float | None]) -> list[float | None]:
+    def _accumulate(
+        self,
+        values: list[float | None],
+        force_zero_flags: list[bool],
+    ) -> list[float | None]:
         result: list[float | None] = []
         total = 0.0
 
-        for value in values:
+        for value, force_zero in zip(values, force_zero_flags):
+            if force_zero:
+                result.append(0.0)
+                continue
+
             if value is not None:
                 total += value
             result.append(total)
