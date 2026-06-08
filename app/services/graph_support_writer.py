@@ -15,8 +15,12 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     ApprovalStatus,
     FunctionalArea,
+    MonthlyBudget,
+    PlanningLine,
+    PlanningTimeValue,
     Request,
     RequestStatus,
+    ReportCode,
     ServiceActivityType,
 )
 from app.services.monthly_template_writer import (
@@ -376,6 +380,50 @@ class GraphSupportWriter:
             )
             graph_count += 1
 
+        current_row = self._write_budget_planning_graph(
+            sheet,
+            current_row,
+            months=[month for _, month, _ in month_columns],
+            estimated_values=self._get_planning_cost_by_month(
+                session, year, end_month, "estimated"
+            ),
+            budget_values=self._get_monthly_budget_by_month(session, year, end_month),
+            real_values=self._get_planning_cost_by_month(
+                session, year, end_month, "real"
+            ),
+        )
+        graph_count += 1
+
+        current_row = self._write_monthly_graph(
+            sheet,
+            current_row,
+            title="Cumplimiento Planificación Presupuestaria",
+            months=[month for _, month, _ in month_columns],
+            series=[
+                SeriesDefinition(
+                    label="IN01-EFEC-IL",
+                    indicator_id="IN01-EFEC-IL",
+                    percentage=True,
+                )
+            ],
+            source_sheet=source_sheet,
+            month_columns=month_columns,
+        )
+        graph_count += 1
+
+        current_row = self._write_billing_graph(
+            sheet,
+            current_row,
+            year=year,
+            end_month=end_month,
+            months=[month for _, month, _ in month_columns],
+            monthly_values=self._get_planning_cost_by_month(
+                session, year, end_month, "real"
+            ),
+            annual_target=self._get_annual_budget(session, year),
+        )
+        graph_count += 1
+
         workbook.save(workbook_path)
         return GraphSupportWriteResult(
             sheet_name=SUPPORT_SHEET_NAME,
@@ -433,6 +481,104 @@ class GraphSupportWriter:
             row += 1
 
         return row + 2
+
+    def _write_budget_planning_graph(
+        self,
+        sheet,
+        start_row: int,
+        months: list[date],
+        estimated_values: list[float],
+        budget_values: list[float],
+        real_values: list[float],
+    ) -> int:
+        title_row = start_row
+        header_row = start_row + 1
+        first_values_row = start_row + 2
+
+        end_column = max(LABEL_COLUMN, FIRST_DATA_COLUMN + len(months) - 1)
+        self._write_title(
+            sheet,
+            title_row,
+            "Planificación Presupuestaria",
+            end_column=end_column,
+        )
+        sheet.cell(row=header_row, column=LABEL_COLUMN).value = "Mes"
+        self._style_header_cell(sheet.cell(row=header_row, column=LABEL_COLUMN))
+
+        for index, month in enumerate(months, start=FIRST_DATA_COLUMN):
+            cell = sheet.cell(row=header_row, column=index)
+            cell.value = self._format_month(month)
+            self._style_header_cell(cell)
+
+        rows = [
+            ("Planificación Estratégica", estimated_values),
+            ("Planificación Económica", budget_values),
+            ("Ejecución Material", real_values),
+        ]
+
+        for row_offset, (label, values) in enumerate(rows):
+            row = first_values_row + row_offset
+            sheet.cell(row=row, column=LABEL_COLUMN).value = label
+            self._style_label_cell(sheet.cell(row=row, column=LABEL_COLUMN))
+
+            for column_index, value in enumerate(values, start=FIRST_DATA_COLUMN):
+                cell = sheet.cell(row=row, column=column_index)
+                cell.value = value
+                cell.number_format = '#,##0.00 "€"'
+
+        return first_values_row + len(rows) + 2
+
+    def _write_billing_graph(
+        self,
+        sheet,
+        start_row: int,
+        year: int,
+        end_month: int,
+        months: list[date],
+        monthly_values: list[float],
+        annual_target: float,
+    ) -> int:
+        title_row = start_row
+        header_row = start_row + 1
+        accumulated_row = start_row + 2
+        monthly_row = start_row + 3
+        target_row = start_row + 4
+
+        end_column = max(LABEL_COLUMN, FIRST_DATA_COLUMN + len(months) - 1)
+        self._write_title(
+            sheet, title_row, f"Facturación {year}", end_column=end_column
+        )
+        sheet.cell(row=header_row, column=LABEL_COLUMN).value = "Mes"
+        self._style_header_cell(sheet.cell(row=header_row, column=LABEL_COLUMN))
+
+        for index, month in enumerate(months, start=FIRST_DATA_COLUMN):
+            cell = sheet.cell(row=header_row, column=index)
+            cell.value = self._format_month(month)
+            self._style_header_cell(cell)
+
+        accumulated_values = self._accumulate(
+            values=monthly_values,
+            force_zero_flags=[month.month > end_month for month in months],
+        )
+        rows = [
+            ("Facturación Acumulada", accumulated_values),
+            ("Facturación Mensual", monthly_values),
+            (f"Facturación objetivo {year}", [annual_target for _ in months]),
+        ]
+
+        for row_index, (label, values) in zip(
+            [accumulated_row, monthly_row, target_row],
+            rows,
+        ):
+            sheet.cell(row=row_index, column=LABEL_COLUMN).value = label
+            self._style_label_cell(sheet.cell(row=row_index, column=LABEL_COLUMN))
+
+            for column_index, value in enumerate(values, start=FIRST_DATA_COLUMN):
+                cell = sheet.cell(row=row_index, column=column_index)
+                cell.value = value
+                cell.number_format = '#,##0.00 "€"'
+
+        return target_row + 3
 
     def _write_category_graph(
         self,
@@ -783,3 +929,91 @@ class GraphSupportWriter:
             )
             if count > 0
         ]
+
+    def _get_planning_cost_by_month(
+        self,
+        session: Session,
+        year: int,
+        end_month: int,
+        source_type: str,
+    ) -> list[float]:
+        values = [0.0 for _ in range(12)]
+        rows = (
+            session.query(
+                PlanningTimeValue.month,
+                PlanningLine.report_code,
+                func.sum(PlanningTimeValue.hours),
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .select_from(PlanningLine)
+            .join(
+                PlanningTimeValue,
+                PlanningTimeValue.planning_line_id == PlanningLine.id,
+            )
+            .join(
+                ReportCode,
+                ReportCode.code == PlanningLine.report_code,
+            )
+            .filter(PlanningLine.source_type == source_type)
+            .filter(PlanningLine.report_code.isnot(None))
+            .filter(PlanningLine.report_code != "")
+            .filter(PlanningTimeValue.year == year)
+            .filter(PlanningTimeValue.month <= end_month)
+            .group_by(
+                PlanningTimeValue.month,
+                PlanningLine.report_code,
+                ReportCode.unit_price,
+                ReportCode.at_unit_hours,
+            )
+            .all()
+        )
+
+        for month, _report_code, total_hours, unit_price, at_unit_hours in rows:
+            if month is None or month < 1 or month > 12:
+                continue
+
+            hours = float(total_hours or 0.0)
+            if hours == 0 or unit_price is None or at_unit_hours is None:
+                continue
+
+            at_unit_hours_value = float(at_unit_hours)
+            if at_unit_hours_value == 0:
+                continue
+
+            values[month - 1] += hours * (float(unit_price) / at_unit_hours_value)
+
+        return values
+
+    def _get_monthly_budget_by_month(
+        self,
+        session: Session,
+        year: int,
+        end_month: int,
+    ) -> list[float]:
+        values = [0.0 for _ in range(12)]
+        rows = (
+            session.query(MonthlyBudget.month, MonthlyBudget.amount)
+            .filter(MonthlyBudget.year == year)
+            .filter(MonthlyBudget.month <= end_month)
+            .filter(MonthlyBudget.amount.isnot(None))
+            .all()
+        )
+
+        for month, amount in rows:
+            if month is None or month < 1 or month > 12:
+                continue
+
+            values[month - 1] = float(amount or 0.0)
+
+        return values
+
+    def _get_annual_budget(self, session: Session, year: int) -> float:
+        value = (
+            session.query(func.sum(MonthlyBudget.amount))
+            .filter(MonthlyBudget.year == year)
+            .filter(MonthlyBudget.amount.isnot(None))
+            .scalar()
+        )
+
+        return float(value or 0.0)

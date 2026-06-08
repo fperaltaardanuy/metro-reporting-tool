@@ -314,4 +314,89 @@ Formato:
   - Fila 1: Meses
   - Fila 2: IN10-EFEC-IL, formato porcentaje
 
-  
+  ## Gráfico: Planificación Presupuestaria
+
+  Fuente: SQLite
+  Tabla/base: requests + planning_lines + planning_time_values + report_codes + monthly_budget
+
+  Filtro:
+  - todas las solicitudes existentes
+
+  Nota: hay que obtener el gasto de cada mes gracias a las planning lines, los planning time values y los report codes. Se obtienen las horas realizadas en el mes para cada report code y multiplicando dichas horas por unit_price/at_unit_hours queda el gasto mensual para el report code, se suman todos y queda el gasto real total del mes.
+
+  Formato:
+    - Título: Planificación Presupuestaria
+    - Fila 1: Meses
+    - Fila 2: Planificación Estratégica. Cálculo de gasto mensual para planning_lines con source = "estimated".
+    - Fila 3: Planificación Económica. Monthly budget del mes
+    - Fila 4: Ejecución Material. Cálculo de gasto mensual para planning_lines con source = "real".
+
+  ## Gráfico: Cumplimiento Planificación Presupuestaria
+
+  Fuente: CM
+  Tipo de datos:
+  - IN01-EFEC-IL
+
+  Periodo: año hasta el mes elegido
+
+  Formato:
+  - Título: Cumplimiento Planificación Presupuestaria
+  - Fila 1: Meses
+  - Fila 2: IN01-EFEC-IL, formato porcentaje
+
+  ## Gráfico: Facturación en el año
+
+  Fuente: SQLite
+  Tabla/base: requests + planning_lines + planning_time_values + report_codes + monthly_budget
+
+  Filtro:
+  - todas las solicitudes existentes
+  - planning_lines con source = "real"
+
+  Nota: hay que obtener el gasto de cada mes gracias a las planning lines, los planning time values y los report codes. Se obtienen las horas realizadas en el mes para cada report code y multiplicando dichas horas por unit_price/at_unit_hours queda el gasto mensual para el report code, se suman todos y queda el gasto real total del mes.
+
+  Formato:
+    - Título: Facturación {{año}}
+    - Fila 1: Meses
+    - Fila 2: Facturación Acumulada. El cálculo de la nota acumulado desde principio de año al mes en cuestión. Mejor calcular primero fila 3 y utilizar para fila 2. Formato moneda
+    - Fila 3: Facturación Mensual. El cálculo indicado en la nota para el mes en concreto que estemos trabajando. Formato moneda
+    - Fila 4: Facturación objetivo {{año}}. Obtener la suma de todos los monthy budgets del año elegido y poner esa misma cifra para todos los meses (la idea es que luego para la gráfica queda como linea horizontal). Formato moneda
+
+  ## Gráfico: Número de ETCs en ejecución
+
+  Fuente: CM
+  Tipo de datos:
+  - IN19-CALS-IA
+
+  Periodo: año hasta el mes elegido
+
+  Formato:
+  - Título: Número de ETCs en ejecución
+  - Fila 1: Meses
+  - Fila 2: IN19-CALS-IA
+
+  ## Gráfico: Dedicación del Director de Servicio 
+
+  Fuente: CM
+  Tipo de datos:
+  - IN28-EFIC-IA
+
+  Periodo: año hasta el mes elegido
+
+  Formato:
+  - Título: Dedicación del Director de Servicio
+  - Fila 1: Meses
+  - Fila 2: IN28-EFIC-IA, formato porcentaje
+
+  ## Gráfico: Tiempo de respuesta en la valoración de solicitudes <= 48h
+
+  Fuente: CM
+  Tipo de datos:
+  - IN04-EFEC-IP
+
+  Periodo: año hasta el mes elegido
+
+  Formato:
+  - Título: Tiempo de respuesta en la valoración de solicitudes <= 48h
+  - Fila 1: Meses
+  - Fila 2: IN04-EFEC-IP, formato porcentaje
