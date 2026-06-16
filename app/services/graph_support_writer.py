@@ -161,10 +161,10 @@ class GraphSupportWriter:
         first_sqlite_graphs = [
             (
                 "Tipo de actividad del servicio",
-                self._get_service_activity_counts(session, year, end_date),
+                self._get_service_activity_percentages(session, year, end_date),
                 "Tipo de actividad",
-                "Número de ST",
-                False,
+                "Porcentaje de ST",
+                True,
             ),
             (
                 "Grupo de interés",
@@ -240,6 +240,23 @@ class GraphSupportWriter:
                 month_columns=month_columns,
             )
             graph_count += 1
+
+        current_row = self._write_category_graph(
+            sheet,
+            current_row,
+            title="Totales de ST para porcentajes",
+            categories=["Total de ST", "ST en curso", "ST cerradas", "ST anuladas"],
+            values=[
+                self._get_total_request_count(session),
+                self._get_open_request_count(session),
+                self._get_status_request_count(session, "Cerrada"),
+                self._get_status_request_count(session, "Cancelada"),
+            ],
+            header_label="Tipo",
+            value_label="Número de ST",
+            percentage=False,
+        )
+        graph_count += 1
 
         area_sqlite_graphs = [
             (
@@ -827,7 +844,7 @@ class GraphSupportWriter:
             .filter(Request.request_date <= end_date)
         )
 
-    def _get_service_activity_counts(
+    def _get_service_activity_percentages(
         self, session: Session, year: int, end_date: date
     ) -> list[tuple[str, float]]:
         rows = (
@@ -844,9 +861,9 @@ class GraphSupportWriter:
             .order_by(func.count(Request.id).desc(), ServiceActivityType.name)
             .all()
         )
-        return [
-            (name or "Sin tipo de actividad", float(count or 0)) for name, count in rows
-        ]
+        return self._to_percentages(
+            {name or "Sin tipo de actividad": int(count or 0) for name, count in rows}
+        )
 
     def _get_functional_area_counts(
         self, session: Session, year: int, end_date: date
@@ -947,6 +964,44 @@ class GraphSupportWriter:
             counts[general_area] = counts.get(general_area, 0) + 1
 
         return self._to_percentages(counts)
+
+    def _get_total_request_count(self, session: Session) -> float:
+        result = session.query(func.count(Request.id)).scalar()
+        return float(result or 0)
+
+    def _get_open_request_count(self, session: Session) -> float:
+        result = (
+            session.query(func.count(Request.id))
+            .join(
+                ApprovalStatus,
+                Request.approval_status_id == ApprovalStatus.id,
+            )
+            .outerjoin(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(ApprovalStatus.name == "MdM Aprobada")
+            .filter(
+                or_(
+                    RequestStatus.name.is_(None),
+                    ~RequestStatus.name.in_(["Cancelada", "Cerrada", "Rechazada"]),
+                )
+            )
+            .scalar()
+        )
+        return float(result or 0)
+
+    def _get_status_request_count(self, session: Session, status_name: str) -> float:
+        result = (
+            session.query(func.count(Request.id))
+            .join(
+                RequestStatus,
+                Request.request_status_id == RequestStatus.id,
+            )
+            .filter(RequestStatus.name == status_name)
+            .scalar()
+        )
+        return float(result or 0)
 
     def _general_area_name(self, area_name: str) -> str:
         normalized = area_name.strip().upper()

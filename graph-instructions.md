@@ -69,7 +69,7 @@
   Formato:
     - Título: Tipo de actividad del servicio
     - Fila 1: Tipo de actividad
-    - Fila 2: Número de ST
+    - Fila 2: Porcentaje de ST sobre el total de ST creadas en el año hasta el mes seleccionado. La fila debe sumar 100%, porque se usará para un pie chart.
 
   ## Gráfico: Grupo de interés
 
@@ -228,6 +228,25 @@ Formato:
 - Título: ST anuladas
 - Fila 1: Área funcional
 - Fila 2: Porcentaje sobre el total
+
+## Tabla de soporte: Totales de ST para porcentajes
+
+Fuente: SQLite
+Tabla/base: requests + approval_statuses + request_statuses
+
+Objetivo:
+- Dar soporte a las gráficas que expresan porcentajes sobre el total de ST, ST en curso, ST cerradas y ST anuladas.
+
+Formato:
+- Título: Totales de ST para porcentajes
+- Fila 1: Total de ST, ST en curso, ST cerradas, ST anuladas
+- Fila 2: Número total de cada categoría a día de fin del periodo elegido
+
+Notas:
+- Total de ST: total de solicitudes existentes en base de datos.
+- ST en curso: misma regla que IN21-EFIC-IA.
+- ST cerradas: solicitudes con estado `Cerrada`.
+- ST anuladas: solicitudes con estado `Cancelada`.
 
 
 ## Gráfico: Cumplimiento de la Planificación Estratégica
