@@ -377,9 +377,27 @@ Notas:
   Formato:
     - Título: Facturación {{año}}
     - Fila 1: Meses
-    - Fila 2: Facturación Acumulada. El cálculo de la nota acumulado desde principio de año al mes en cuestión. Mejor calcular primero fila 3 y utilizar para fila 2. Formato moneda
+    - Fila 2: Facturación Acumulada. El cálculo de la nota acumulado desde principio de año al mes en cuestión. Mejor calcular primero fila 3 y utilizar para fila 2. Para los meses posteriores al mes elegido, mantener la cifra acumulada del mes elegido hasta finalizar el año. Formato moneda
     - Fila 3: Facturación Mensual. El cálculo indicado en la nota para el mes en concreto que estemos trabajando. Formato moneda
-    - Fila 4: Facturación objetivo {{año}}. Obtener la suma de todos los monthy budgets del año elegido y poner esa misma cifra para todos los meses (la idea es que luego para la gráfica queda como linea horizontal). Formato moneda
+    - Fila 4: Facturación objetivo {{año}}. Obtener la suma de todos los monthy budgets del año elegido, restar un 15% de beneficio industrial/GG, BI y poner esa misma cifra para todos los meses (la idea es que luego para la gráfica queda como linea horizontal). Formato moneda
+
+  ## Gráfico: Facturación en el año con GG, BI
+
+  Fuente: SQLite
+  Tabla/base: requests + planning_lines + planning_time_values + report_codes + monthly_budget
+
+  Filtro:
+  - todas las solicitudes existentes
+  - planning_lines con source = "real"
+
+  Nota: es igual que el gráfico "Facturación en el año", pero aplicando un 15% adicional de beneficio industrial/GG, BI a la facturación mensual. En esta tabla el objetivo conserva la suma anual completa de monthly budgets, porque representa el objetivo con beneficio industrial/GG, BI.
+
+  Formato:
+    - Título: Facturación {{año}} con GG, BI
+    - Fila 1: Meses
+    - Fila 2: Facturación Acumulada. Facturación mensual con el 15% adicional acumulada desde principio de año. Para los meses posteriores al mes elegido, mantener la cifra acumulada del mes elegido hasta finalizar el año. Formato moneda
+    - Fila 3: Facturación Mensual. Facturación mensual multiplicada por 1,15. Formato moneda
+    - Fila 4: Facturación objetivo {{año}}. Suma anual completa de monthly budgets repetida para todos los meses. Formato moneda
 
   ## Gráfico: Número de ETCs en ejecución
 

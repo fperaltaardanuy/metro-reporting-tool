@@ -433,11 +433,30 @@ class GraphSupportWriter:
             current_row,
             year=year,
             end_month=end_month,
+            title=f"Facturación {year}",
             months=[month for _, month, _ in month_columns],
             monthly_values=self._get_planning_cost_by_month(
                 session, year, end_month, "real"
             ),
             annual_target=self._get_annual_budget(session, year),
+            billing_factor=1.0,
+            target_factor=0.85,
+        )
+        graph_count += 1
+
+        current_row = self._write_billing_graph(
+            sheet,
+            current_row,
+            year=year,
+            end_month=end_month,
+            title=f"Facturación {year} con GG, BI",
+            months=[month for _, month, _ in month_columns],
+            monthly_values=self._get_planning_cost_by_month(
+                session, year, end_month, "real"
+            ),
+            annual_target=self._get_annual_budget(session, year),
+            billing_factor=1.15,
+            target_factor=1.0,
         )
         graph_count += 1
 
@@ -595,9 +614,12 @@ class GraphSupportWriter:
         start_row: int,
         year: int,
         end_month: int,
+        title: str,
         months: list[date],
         monthly_values: list[float],
         annual_target: float,
+        billing_factor: float,
+        target_factor: float,
     ) -> int:
         title_row = start_row
         header_row = start_row + 1
@@ -606,9 +628,7 @@ class GraphSupportWriter:
         target_row = start_row + 4
 
         end_column = max(LABEL_COLUMN, FIRST_DATA_COLUMN + len(months) - 1)
-        self._write_title(
-            sheet, title_row, f"Facturación {year}", end_column=end_column
-        )
+        self._write_title(sheet, title_row, title, end_column=end_column)
         sheet.cell(row=header_row, column=LABEL_COLUMN).value = "Mes"
         self._style_header_cell(sheet.cell(row=header_row, column=LABEL_COLUMN))
 
@@ -617,9 +637,11 @@ class GraphSupportWriter:
             cell.value = self._format_month(month)
             self._style_header_cell(cell)
 
+        monthly_values = [value * billing_factor for value in monthly_values]
+        annual_target = annual_target * target_factor
         accumulated_values = self._accumulate(
             values=monthly_values,
-            force_zero_flags=[month.month > end_month for month in months],
+            force_zero_flags=[False for _ in months],
         )
         rows = [
             ("Facturación Acumulada", accumulated_values),
@@ -782,9 +804,9 @@ class GraphSupportWriter:
         sheet,
         row: int | None,
         month_columns: list[tuple[int | None, date, bool]],
-    ) -> list[float | None]:
+    ) -> list[float]:
         if row is None:
-            return [None for _ in month_columns]
+            return [0.0 for _ in month_columns]
 
         return [
             (
@@ -797,9 +819,9 @@ class GraphSupportWriter:
             for column, _, force_zero in month_columns
         ]
 
-    def _normalize_cell_value(self, value: Any) -> float | None:
+    def _normalize_cell_value(self, value: Any) -> float:
         if isinstance(value, bool):
-            return None
+            return 0.0
 
         if isinstance(value, int | float):
             return float(value)
@@ -807,9 +829,9 @@ class GraphSupportWriter:
         if isinstance(value, str):
             normalized = value.strip().lower()
             if normalized in {"", "-", "error"}:
-                return None
+                return 0.0
 
-        return None
+        return 0.0
 
     def _accumulate(
         self,
